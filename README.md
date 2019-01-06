@@ -91,70 +91,14 @@ fn main() {
 
 ```
 
-### Custom
+### Custom decoder
 
-```rust
-use std::hash;
+Refer to RLPCodec in `src/codec.rs`
 
-use rlp::{Prototype, Rlp, RlpStream};
-use sha3::{Digest, Sha3_256};
+## Why not use parity/trie
 
-#[derive(Default, Debug)]
-pub struct RLPNodeCodec {}
+Because the `parity/trie` code is too difficult to understand, and the user needs to know the details of the trie to implement the decoder.
 
-impl NodeCodec for RLPNodeCodec {
-    type Error = RLPCodecError;
+`CITA-trie` is more user-friendly, users can easily implement custom decoders without paying attention to trie implementation details, and provide an implementation of RLP by default.
 
-    const HASH_LENGTH: usize = 32;
-
-    type Hash = [u8; 32];
-
-    fn decode<F, T>(&self, data: &[u8], f: F) -> Result<T, Self::Error>
-    where
-        F: Fn(DataType) -> Result<T, Self::Error>,
-    {
-        let r = Rlp::new(data);
-        match r.prototype()? {
-            Prototype::Data(0) => Ok(f(DataType::Empty)?),
-            Prototype::List(2) => {
-                let key = r.at(0)?.data()?;
-                let value = r.at(1)?.data()?;
-
-                Ok(f(DataType::Pair(&key, &value))?)
-            }
-            _ => Ok(f(DataType::Values(&r.as_list()?))?),
-        }
-    }
-
-    fn encode_empty(&self) -> Vec<u8> {
-        let mut stream = RlpStream::new();
-        stream.append_empty_data();
-        stream.out()
-    }
-
-    fn encode_pair(&self, key: &[u8], value: &[u8]) -> Vec<u8> {
-        let mut stream = RlpStream::new_list(2);
-        stream.append(&key);
-        stream.append(&value);
-        stream.out()
-    }
-
-    fn encode_values(&self, values: &[Vec<u8>]) -> Vec<u8> {
-        let mut stream = RlpStream::new_list(values.len());
-        for data in values {
-            stream.append(data);
-        }
-        stream.out()
-    }
-
-    fn decode_hash(&self, data: &[u8], is_hash: bool) -> Self::Hash {
-        let mut out = [0u8; Self::HASH_LENGTH];
-        if is_hash {
-            out.copy_from_slice(data);
-        } else {
-            out.copy_from_slice(&Sha3_256::digest(data));
-        }
-        out
-    }
-}
-```
+However, this project is currently not perfect, stability and performance testing has not been done, it is not recommended to use in production environments

@@ -1,0 +1,17 @@
+[package]
+name = "cita-trie"
+version = "0.1.0"
+authors = ["yejiayu <yejiayu.fe@gmail.com>"]
+description = "Modified Patricia Tree (aka Trie)."
+license = "Apache-2.0"
+edition = "2018"
+
+[dependencies]
+failure = "0.1.5"
+bytes = "0.4.11"
+sha3 = "0.8.0"
+rlp = "0.3.0"
+
+[dev-dependencies]
+rand = "0.6.3"
+hex = "0.3.2"

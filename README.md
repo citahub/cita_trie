@@ -2,7 +2,7 @@
 
 [![Latest Version](https://img.shields.io/crates/v/cita_trie.svg)](https://crates.io/crates/cita_trie)
 [![](https://travis-ci.org/cryptape/cita-trie.svg?branch=master)](https://travis-ci.org/cryptape/cita-trie)
-[![](https://img.shields.io/hexpm/l/plug.svg)]
+[![](https://img.shields.io/hexpm/l/plug.svg)](https://github.com/cryptape/cita-trie/blob/master/LICENSE)
 
 Rust implementation of the Modified Patricia Tree (aka Trie),
 

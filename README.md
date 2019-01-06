@@ -1,5 +1,9 @@
 ## CITA-Trie
 
+![crates.io](https://img.shields.io/crates/v/cita_trie.svg)
+[![](https://travis-ci.org/cryptape/cita-trie.svg?branch=master)](https://travis-ci.org/cryptape/cita-trie)
+[![](https://img.shields.io/hexpm/l/plug.svg)](https://crates.io/crates/cita_trie)
+
 Rust implementation of the Modified Patricia Tree (aka Trie),
 
 The implementation is strongly inspired by [go-ethereum trie](https://github.com/ethereum/go-ethereum/tree/master/trie)

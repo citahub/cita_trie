@@ -1,6 +1,6 @@
 [package]
-name = "cita-trie"
-version = "0.1.0"
+name = "cita_trie"
+version = "0.1.3"
 authors = ["yejiayu <yejiayu.fe@gmail.com>"]
 description = "Modified Patricia Tree (aka Trie)."
 license = "Apache-2.0"

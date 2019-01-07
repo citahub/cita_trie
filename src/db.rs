@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::error::Error;
-use std::sync::RwLock;
 use std::fmt::Debug;
+use std::sync::RwLock;
 
 use crate::errors::MemDBError;
 

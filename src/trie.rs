@@ -85,7 +85,7 @@ where
         }
     }
 
-    pub fn from(db: &'db mut D, codec: C, root: C::Hash) -> TrieResult<Self, C, D> {
+    pub fn from(db: &'db mut D, codec: C, root: &C::Hash) -> TrieResult<Self, C, D> {
         match db.get(root.as_ref()).map_err(TrieError::DB)? {
             Some(data) => {
                 let mut trie = PatriciaTrie {
@@ -271,7 +271,7 @@ where
         let encoded = self.encode_node(&root);
         let root_hash = if encoded.len() < C::HASH_LENGTH {
             let hash = self.codec.decode_hash(&encoded, false);
-            self.cache.insert(hash, encoded);
+            self.cache.insert(hash.clone(), encoded);
             hash
         } else {
             self.codec.decode_hash(&encoded, true)
@@ -348,7 +348,7 @@ where
             data
         } else {
             let hash = self.codec.decode_hash(&data, false);
-            self.cache.insert(hash, data);
+            self.cache.insert(hash.clone(), data);
             Vec::from(hash.as_ref())
         }
     }
@@ -481,7 +481,7 @@ mod tests {
             trie.root().unwrap()
         };
 
-        let mut trie = PatriciaTrie::from(&mut memdb, RLPNodeCodec::default(), root).unwrap();
+        let mut trie = PatriciaTrie::from(&mut memdb, RLPNodeCodec::default(), &root).unwrap();
         let v1 = trie.get(b"test33").unwrap();
         assert_eq!(Some(b"test".to_vec()), v1);
         let v2 = trie.get(b"test44").unwrap();
@@ -504,7 +504,7 @@ mod tests {
             trie.commit().unwrap()
         };
 
-        let mut trie = PatriciaTrie::from(&mut memdb, RLPNodeCodec::default(), root).unwrap();
+        let mut trie = PatriciaTrie::from(&mut memdb, RLPNodeCodec::default(), &root).unwrap();
         trie.insert(b"test55", b"test55").unwrap();
         let v = trie.get(b"test55").unwrap();
         assert_eq!(Some(b"test55".to_vec()), v);
@@ -524,7 +524,7 @@ mod tests {
             trie.commit().unwrap()
         };
 
-        let mut trie = PatriciaTrie::from(&mut memdb, RLPNodeCodec::default(), root).unwrap();
+        let mut trie = PatriciaTrie::from(&mut memdb, RLPNodeCodec::default(), &root).unwrap();
         let removed = trie.remove(b"test44").unwrap();
         assert_eq!(true, removed);
     }

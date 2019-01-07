@@ -63,30 +63,28 @@ mod tests {
     #[test]
     fn test_memdb_get() {
         let mut memdb = MemoryDB::new();
-        memdb
-            .insert("test-key".as_bytes(), "test-value".as_bytes())
-            .unwrap();
-        let v = memdb.get("test-key".as_bytes()).unwrap().unwrap();
+        memdb.insert(b"test-key", b"test-value").unwrap();
+        let v = memdb.get(b"test-key").unwrap().unwrap();
 
-        assert_eq!(v, "test-value".as_bytes())
+        assert_eq!(v, b"test-value")
     }
 
     #[test]
     fn test_memdb_contains() {
         let mut memdb = MemoryDB::new();
-        memdb.insert("test".as_bytes(), "test".as_bytes()).unwrap();
+        memdb.insert(b"test", b"test").unwrap();
 
-        let contains = memdb.contains("test".as_bytes()).unwrap();
+        let contains = memdb.contains(b"test").unwrap();
         assert_eq!(contains, true)
     }
 
     #[test]
     fn test_memdb_remove() {
         let mut memdb = MemoryDB::new();
-        memdb.insert("test".as_bytes(), "test".as_bytes()).unwrap();
+        memdb.insert(b"test", b"test").unwrap();
 
-        memdb.remove("test".as_bytes()).unwrap();
-        let contains = memdb.contains("test".as_bytes()).unwrap();
+        memdb.remove(b"test").unwrap();
+        let contains = memdb.contains(b"test").unwrap();
         assert_eq!(contains, false)
     }
 }

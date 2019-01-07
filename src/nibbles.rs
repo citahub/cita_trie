@@ -136,11 +136,11 @@ mod tests {
 
     #[test]
     fn test_nibble() {
-        let n = Nibbles::from_raw("key1".as_bytes(), true);
+        let n = Nibbles::from_raw(b"key1", true);
         let compact = n.encode_compact();
         let n2 = Nibbles::from_compact(&compact);
         let (raw, is_leaf) = n2.encode_raw();
         assert_eq!(is_leaf, true);
-        assert_eq!(raw, "key1".as_bytes());
+        assert_eq!(raw, b"key1");
     }
 }

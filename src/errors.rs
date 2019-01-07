@@ -34,7 +34,7 @@ where
         let printable = match *self {
             TrieError::NodeCodec(ref err) => format!("node codec err: {:?}", err),
             TrieError::DB(ref err) => format!("db err: {:?}", err),
-            TrieError::InvalidStateRoot => format!("invalid state root"),
+            TrieError::InvalidStateRoot => "invalid state root".to_string(),
         };
         write!(f, "{}", printable)
     }

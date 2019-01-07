@@ -31,7 +31,7 @@ impl DB for MemoryDB {
     type Error = MemDBError;
 
     fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, Self::Error> {
-        if let Some(value) = self.storage.read().unwrap().get(&key.to_vec()) {
+        if let Some(value) = self.storage.read().unwrap().get(key) {
             Ok(Some(value.clone()))
         } else {
             Ok(None)
@@ -47,11 +47,11 @@ impl DB for MemoryDB {
     }
 
     fn contains(&self, key: &[u8]) -> Result<bool, Self::Error> {
-        Ok(self.storage.read().unwrap().contains_key(&key.to_vec()))
+        Ok(self.storage.read().unwrap().contains_key(key))
     }
 
     fn remove(&mut self, key: &[u8]) -> Result<(), Self::Error> {
-        self.storage.write().unwrap().remove(&key.to_vec());
+        self.storage.write().unwrap().remove(key);
         Ok(())
     }
 }

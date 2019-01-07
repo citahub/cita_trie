@@ -376,8 +376,6 @@ mod tests {
     use rand::distributions::Alphanumeric;
     use rand::{thread_rng, Rng};
 
-    use test::Bencher;
-
     use super::{PatriciaTrie, Trie};
     use crate::codec::{NodeCodec, RLPNodeCodec};
     use crate::db::MemoryDB;
@@ -532,12 +530,5 @@ mod tests {
         let mut trie = PatriciaTrie::from(&mut memdb, RLPNodeCodec::default(), root).unwrap();
         let removed = trie.remove("test44".as_bytes()).unwrap();
         assert_eq!(true, removed);
-    }
-
-    #[bench]
-    fn bench_add_two(b: &mut Bencher) {
-        let mut memdb = MemoryDB::new();
-        let mut trie = PatriciaTrie::new(&mut memdb, RLPNodeCodec::default());
-        b.iter(|| trie.insert("test".as_bytes(), "test".as_bytes()).unwrap());
     }
 }

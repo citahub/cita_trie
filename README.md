@@ -45,8 +45,7 @@ pub trait NodeCodec: Sized + Debug {
         + hash::Hash
         + Send
         + Sync
-        + Clone
-        + Copy;
+        + Clone;
 
     fn decode<F, T>(&self, data: &[u8], f: F) -> Result<T, Self::Error>
     where

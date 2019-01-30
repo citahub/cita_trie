@@ -85,6 +85,7 @@ impl Nibbles {
         compact
     }
 
+    #[cfg(test)]
     pub fn encode_raw(&self) -> (Vec<u8>, bool) {
         let mut raw = vec![];
         let is_leaf = self.is_leaf();

@@ -158,17 +158,30 @@ where
                 } else {
                     let index = partial.at(0) as usize;
                     let node = branch.at_children(index);
-                    self.delete_at(node.clone(), &partial.slice(1, partial.len()))
+
+                    let (new_n, deleted) =
+                        self.delete_at(node.clone(), &partial.slice(1, partial.len()))?;
+                    if deleted {
+                        branch.insert(index, new_n);
+                    }
+
+                    Ok((branch.into_node(), deleted))
                 }
             }
-            Node::Extension(extension) => {
+            Node::Extension(mut extension) => {
                 let prefix = extension.get_prefix();
                 let match_len = partial.common_prefix(prefix);
                 if match_len == prefix.len() {
-                    self.delete_at(
+                    let (new_n, deleted) = self.delete_at(
                         extension.get_node().clone(),
                         &partial.slice(match_len, partial.len()),
-                    )
+                    )?;
+
+                    if deleted {
+                        extension.set_node(new_n);
+                    }
+
+                    Ok((extension.into_node(), deleted))
                 } else {
                     Ok((extension.into_node(), false))
                 }
@@ -526,6 +539,10 @@ mod tests {
 
         let mut trie = PatriciaTrie::from(&mut memdb, RLPNodeCodec::default(), &root).unwrap();
         let removed = trie.remove(b"test44").unwrap();
+        assert_eq!(true, removed);
+        let removed = trie.remove(b"test33").unwrap();
+        assert_eq!(true, removed);
+        let removed = trie.remove(b"test23").unwrap();
         assert_eq!(true, removed);
     }
 }

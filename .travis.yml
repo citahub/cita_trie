@@ -12,14 +12,14 @@ jobs:
     - stage: Check
       name: Format
       script:
-        - rustup component add rustfmt-preview
+        - rustup component add rustfmt
         - cargo fmt --all -- --check
     - stage: Check
       name: Clippy
       script:
-        - rustup component add clippy-preview
-        - RUSTFLAGS='-F warnings' cargo clippy --all --tests
+        - rustup component add clippy
+        - RUSTFLAGS='-F warnings' cargo clippy --all --all-targets --all-features
     - stage: Test
-      name: IntegrationTest
+      name: UnitTest
       script:
         - cargo test -- --nocapture

@@ -82,7 +82,7 @@ fn main() {
         trie.root().unwrap()
     };
 
-    let mut trie = PatriciaTrie::from(&mut memdb, RLPNodeCodec::default(), root).unwrap();
+    let mut trie = PatriciaTrie::from(&mut memdb, RLPNodeCodec::default(), &root).unwrap();
     let exists = trie.contains(key).unwrap();
     assert_eq!(exists, true);
     let removed = trie.remove(key).unwrap();

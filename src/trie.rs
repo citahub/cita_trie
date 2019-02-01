@@ -35,7 +35,9 @@ where
     db: &'db mut D,
     codec: C,
 
-    pub cache: HashMap<C::Hash, Vec<u8>>,
+    cache: HashMap<C::Hash, Vec<u8>>,
+
+    deleted_keys: Vec<C::Hash>,
 }
 
 impl<'db, C, D> Trie<C, D> for PatriciaTrie<'db, C, D>
@@ -82,6 +84,7 @@ where
             codec,
 
             cache: HashMap::new(),
+            deleted_keys: vec![],
         }
     }
 
@@ -94,6 +97,7 @@ where
                     codec,
 
                     cache: HashMap::new(),
+                    deleted_keys: vec![],
                 };
 
                 trie.root = trie.decode_node(&data).map_err(TrieError::NodeCodec)?;
@@ -174,8 +178,13 @@ where
                 }
             }
             Node::Hash(hash) => {
-                let n = self.get_node_from_hash(hash.get_hash())?;
-                self.delete_at(n, partial)
+                let (new_n, deleted) =
+                    self.delete_at(self.get_node_from_hash(hash.get_hash())?, partial)?;
+                if deleted {
+                    self.deleted_keys
+                        .push(self.codec.decode_hash(hash.get_hash(), true));
+                }
+                Ok((new_n, deleted))
             }
         }
     }
@@ -267,8 +276,7 @@ where
     }
 
     fn commit(&mut self) -> TrieResult<C::Hash, C, D> {
-        let root = &self.root.clone();
-        let encoded = self.encode_node(&root);
+        let encoded = self.encode_node(&self.root.clone());
         let root_hash = if encoded.len() < C::HASH_LENGTH {
             let hash = self.codec.decode_hash(&encoded, false);
             self.cache.insert(hash.clone(), encoded);
@@ -276,11 +284,14 @@ where
         } else {
             self.codec.decode_hash(&encoded, true)
         };
-        for key in self.cache.keys() {
-            let value = &self.cache[key];
-            self.db
-                .insert(key.as_ref(), &value)
-                .map_err(TrieError::DB)?;
+
+        // TODO: batch operation
+        for (k, v) in self.cache.drain() {
+            self.db.insert(k.as_ref(), &v).map_err(TrieError::DB)?;
+        }
+
+        for key in self.deleted_keys.drain(..) {
+            self.db.remove(key.as_ref()).map_err(TrieError::DB)?;
         }
 
         Ok(root_hash)

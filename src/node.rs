@@ -122,6 +122,10 @@ impl ExtensionNode {
         &self.node
     }
 
+    pub fn set_node(&mut self, n: Node) {
+        self.node = Box::new(n)
+    }
+
     pub fn into_node(self) -> Node {
         Node::Extension(self)
     }

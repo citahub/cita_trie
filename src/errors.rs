@@ -63,11 +63,7 @@ where
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum MemDBError {}
 
-impl Error for MemDBError {
-    fn description(&self) -> &str {
-        "mem db error"
-    }
-}
+impl Error for MemDBError {}
 
 impl fmt::Display for MemDBError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

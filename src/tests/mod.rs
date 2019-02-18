@@ -595,20 +595,20 @@ mod trie_tests {
             ],
             "0x9f6221ebb8efe7cff60a716ecb886e67dd042014be444669f0159d8e68b42100",
         );
-        // assert_root(
-        //     vec![
-        //         (b"key1aa", b"0123456789012345678901234567890123456789xxx"),
-        //         (
-        //             b"key1",
-        //             b"0123456789012345678901234567890123456789Very_Long",
-        //         ),
-        //         (b"key2bb", b"aval3"),
-        //         (b"key2", b"short"),
-        //         (b"key3cc", b"aval3"),
-        //         (b"key3", b"1234567890123456789012345678901"),
-        //     ],
-        //     "0xcb65032e2f76c48b82b5c24b3db8f670ce73982869d38cd39a624f23d62a9e89",
-        // );
+        assert_root(
+            vec![
+                (b"key1aa", b"0123456789012345678901234567890123456789xxx"),
+                (
+                    b"key1",
+                    b"0123456789012345678901234567890123456789Very_Long",
+                ),
+                (b"key2bb", b"aval3"),
+                (b"key2", b"short"),
+                (b"key3cc", b"aval3"),
+                (b"key3", b"1234567890123456789012345678901"),
+            ],
+            "0xcb65032e2f76c48b82b5c24b3db8f670ce73982869d38cd39a624f23d62a9e89",
+        );
         assert_root(
             vec![(b"abc", b"123"), (b"abcd", b"abcd"), (b"abc", b"abc")],
             "0x7a320748f780ad9ad5b0837302075ce0eeba6c26e3d8562c67ccc0f1b273298a",

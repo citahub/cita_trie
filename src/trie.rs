@@ -448,7 +448,7 @@ where
 
         // Nodes smaller than 32 bytes are stored inside their parent,
         // Nodes equal to 32 bytes are returned directly
-        if data.len() <= C::HASH_LENGTH {
+        if data.len() < C::HASH_LENGTH {
             data
         } else {
             let hash = self.codec.decode_hash(&data, false);

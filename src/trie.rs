@@ -242,7 +242,7 @@ where
                 )
             }
             Node::Branch(mut branch) => {
-                if partial.is_empty() || partial.at(0) == 16 {
+                if partial.at(0) == 16 {
                     branch.set_value(Some(value.to_vec()));
                     Ok(branch.into_node())
                 } else {

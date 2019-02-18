@@ -443,7 +443,8 @@ where
                 };
                 self.codec.encode_pair(&key, &value)
             }
-            Node::Hash(hash) => hash.get_hash().to_vec(),
+            // Returns the hash value directly to avoid double counting.
+            Node::Hash(hash) => return hash.get_hash().to_vec(),
         };
 
         // Nodes smaller than 32 bytes are stored inside their parent,

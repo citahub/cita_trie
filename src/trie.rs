@@ -56,6 +56,10 @@ where
     }
 
     fn insert(&mut self, key: &[u8], value: &[u8]) -> TrieResult<(), C, D> {
+        if value.is_empty() {
+            self.remove(key)?;
+            return Ok(());
+        }
         let root = self.insert_at(self.root.clone(), &Nibbles::from_raw(key, true), value)?;
         self.root = root;
         Ok(())
@@ -118,7 +122,7 @@ where
                 }
             }
             Node::Branch(ref branch) => {
-                if partial.is_empty() || partial.at(0) == 16 {
+                if partial.is_empty() {
                     Ok(branch.get_value().and_then(|v| Some(v.to_vec())))
                 } else {
                     let index = partial.at(0) as usize;
@@ -146,7 +150,7 @@ where
     }
 
     fn delete_at(&mut self, n: Node, partial: &Nibbles) -> TrieResult<(Node, bool), C, D> {
-        match n {
+        let (new_n, deleted) = match n {
             Node::Empty => Ok((Node::Empty, false)),
             Node::Leaf(leaf) => {
                 if leaf.get_key() == partial {
@@ -156,7 +160,7 @@ where
                 }
             }
             Node::Branch(mut branch) => {
-                if partial.is_empty() || partial.at(0) == 16 {
+                if partial.at(0) == 16 {
                     branch.set_value(None);
                     Ok((branch.into_node(), true))
                 } else {
@@ -184,7 +188,6 @@ where
                     if deleted {
                         extension.set_node(new_n);
                     }
-
                     Ok((extension.into_node(), deleted))
                 } else {
                     Ok((extension.into_node(), false))
@@ -199,7 +202,9 @@ where
                 }
                 Ok((new_n, deleted))
             }
-        }
+        }?;
+
+        Ok((self.degenerate(new_n), deleted))
     }
 
     fn insert_at(&mut self, n: Node, partial: &Nibbles, value: &[u8]) -> TrieResult<Node, C, D> {
@@ -237,7 +242,7 @@ where
                 )
             }
             Node::Branch(mut branch) => {
-                if partial.is_empty() {
+                if partial.is_empty() || partial.at(0) == 16 {
                     branch.set_value(Some(value.to_vec()));
                     Ok(branch.into_node())
                 } else {
@@ -256,8 +261,20 @@ where
                 let match_index = partial.common_prefix(&prefix);
 
                 if match_index == 0 {
-                    // Don't match, create a branch node.
-                    self.insert_at(Node::Empty, partial, value)
+                    let mut branch = BranchNode::new();
+                    branch.insert(
+                        prefix.at(0) as usize,
+                        if prefix.len() == 1 {
+                            extension.get_node().clone()
+                        } else {
+                            ExtensionNode::new(
+                                &prefix.slice(1, prefix.len()),
+                                extension.get_node().clone(),
+                            )
+                            .into_node()
+                        },
+                    );
+                    self.insert_at(branch.into_node(), partial, value)
                 } else if match_index == prefix.len() {
                     let new_node = self.insert_at(
                         extension.get_node().clone(),
@@ -285,6 +302,56 @@ where
                 let n = self.get_node_from_hash(hash.get_hash())?;
                 self.insert_at(n, partial, value)
             }
+        }
+    }
+
+    fn degenerate(&self, n: Node) -> Node {
+        match n {
+            Node::Branch(branch) => {
+                let mut used_indexs = vec![];
+                for index in 0..16 {
+                    match branch.at_children(index) {
+                        Node::Empty => continue,
+                        _ => used_indexs.push(index),
+                    }
+                }
+
+                // if only a value node, transmute to leaf.
+                if used_indexs.is_empty() && branch.get_value().is_some() {
+                    let key = Nibbles::from_raw(&[], true);
+                    LeafNode::new(&key, branch.get_value().unwrap()).into_node()
+
+                // if only one node. make an extension.
+                } else if used_indexs.len() == 1 && branch.get_value().is_none() {
+                    let used_index = used_indexs[0];
+                    let n = branch.at_children(used_index);
+
+                    let new_node =
+                        ExtensionNode::new(&Nibbles::from_hex(&[used_index as u8]), n.clone())
+                            .into_node();
+                    self.degenerate(new_node)
+                } else {
+                    branch.into_node()
+                }
+            }
+            Node::Extension(extension) => {
+                let prefix = extension.get_prefix();
+
+                match extension.get_node() {
+                    Node::Extension(sub_ext) => {
+                        let new_prefix = prefix.join(sub_ext.get_prefix());
+                        let new_n =
+                            ExtensionNode::new(&new_prefix, sub_ext.get_node().clone()).into_node();
+                        self.degenerate(new_n)
+                    }
+                    Node::Leaf(leaf) => {
+                        let new_prefix = prefix.join(leaf.get_key());
+                        LeafNode::new(&new_prefix, leaf.get_value()).into_node()
+                    }
+                    _ => extension.into_node(),
+                }
+            }
+            _ => n,
         }
     }
 
@@ -336,31 +403,44 @@ where
                 }
                 Ok(branch.into_node())
             }
+            DataType::Hash(hash) => self.try_decode_hash_node(hash),
         })
     }
 
     fn encode_node(&mut self, n: &Node) -> Vec<u8> {
         let data = match n {
             Node::Empty => self.codec.encode_empty(),
-            Node::Leaf(ref leaf) => self
-                .codec
-                .encode_pair(&leaf.get_key().encode_compact(), leaf.get_value()),
+            Node::Leaf(ref leaf) => self.codec.encode_pair(
+                &self.codec.encode_raw(&leaf.get_key().encode_compact()),
+                &self.codec.encode_raw(leaf.get_value()),
+            ),
             Node::Branch(branch) => {
                 let mut values = vec![];
                 for index in 0..16 {
                     let data = self.encode_node(branch.at_children(index));
-                    values.push(data);
+                    if data.len() == C::HASH_LENGTH {
+                        values.push(self.codec.encode_raw(&data));
+                    } else {
+                        values.push(data);
+                    }
                 }
                 match branch.get_value() {
-                    Some(v) => values.push(v.to_vec()),
+                    Some(v) => values.push(self.codec.encode_raw(v)),
                     None => values.push(self.codec.encode_empty()),
                 }
                 self.codec.encode_values(&values)
             }
             Node::Extension(extension) => {
-                let key = extension.get_prefix().encode_compact();
+                let key = self
+                    .codec
+                    .encode_raw(&extension.get_prefix().encode_compact());
                 let value = self.encode_node(extension.get_node());
 
+                let value = if value.len() == C::HASH_LENGTH {
+                    self.codec.encode_raw(&value)
+                } else {
+                    value
+                };
                 self.codec.encode_pair(&key, &value)
             }
             Node::Hash(hash) => hash.get_hash().to_vec(),
@@ -368,7 +448,7 @@ where
 
         // Nodes smaller than 32 bytes are stored inside their parent,
         // Nodes equal to 32 bytes are returned directly
-        if data.len() < C::HASH_LENGTH || data.len() == C::HASH_LENGTH {
+        if data.len() <= C::HASH_LENGTH {
             data
         } else {
             let hash = self.codec.decode_hash(&data, false);

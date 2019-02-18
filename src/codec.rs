@@ -1,16 +1,16 @@
 use std::fmt::Debug;
 use std::hash;
 
+use crate::errors::RLPCodecError;
 use rlp::{Prototype, Rlp, RlpStream};
 use sha3::{Digest, Sha3_256};
-
-use crate::errors::RLPCodecError;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum DataType<'a> {
     Empty,
     Pair(&'a [u8], &'a [u8]),
     Values(&'a [Vec<u8>]),
+    Hash(&'a [u8]),
 }
 
 pub trait NodeCodec: Sized + Debug {
@@ -35,6 +35,7 @@ pub trait NodeCodec: Sized + Debug {
     fn encode_empty(&self) -> Vec<u8>;
     fn encode_pair(&self, key: &[u8], value: &[u8]) -> Vec<u8>;
     fn encode_values(&self, values: &[Vec<u8>]) -> Vec<u8>;
+    fn encode_raw(&self, raw: &[u8]) -> Vec<u8>;
 
     fn decode_hash(&self, data: &[u8], is_hash: bool) -> Self::Hash;
 }
@@ -62,7 +63,15 @@ impl NodeCodec for RLPNodeCodec {
 
                 Ok(f(DataType::Pair(&key, &value))?)
             }
-            _ => Ok(f(DataType::Values(&r.as_list()?))?),
+            Prototype::List(17) => {
+                let mut values = vec![];
+                for i in 0..17 {
+                    values.push(r.at(i)?.as_raw().to_vec());
+                }
+                Ok(f(DataType::Values(&values))?)
+            }
+            Prototype::Data(Self::HASH_LENGTH) => Ok(f(DataType::Hash(r.data()?))?),
+            _ => panic!("invalid data"),
         }
     }
 
@@ -74,16 +83,22 @@ impl NodeCodec for RLPNodeCodec {
 
     fn encode_pair(&self, key: &[u8], value: &[u8]) -> Vec<u8> {
         let mut stream = RlpStream::new_list(2);
-        stream.append(&key);
-        stream.append(&value);
+        stream.append_raw(key, 1);
+        stream.append_raw(value, 1);
         stream.out()
     }
 
     fn encode_values(&self, values: &[Vec<u8>]) -> Vec<u8> {
         let mut stream = RlpStream::new_list(values.len());
         for data in values {
-            stream.append(data);
+            stream.append_raw(data, 1);
         }
+        stream.out()
+    }
+
+    fn encode_raw(&self, raw: &[u8]) -> Vec<u8> {
+        let mut stream = RlpStream::new();
+        stream.append(&raw);
         stream.out()
     }
 

@@ -129,6 +129,17 @@ impl Nibbles {
     pub fn slice(&self, start: usize, end: usize) -> Nibbles {
         Nibbles::from_hex(&self.hex_data[start..end])
     }
+
+    pub fn get_data(&self) -> &[u8] {
+        &self.hex_data
+    }
+
+    pub fn join(&self, b: &Nibbles) -> Nibbles {
+        let mut hex_data = vec![];
+        hex_data.extend_from_slice(self.get_data());
+        hex_data.extend_from_slice(b.get_data());
+        Nibbles::from_hex(&hex_data)
+    }
 }
 
 #[cfg(test)]

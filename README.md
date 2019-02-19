@@ -54,6 +54,7 @@ pub trait NodeCodec: Sized + Debug {
     fn encode_empty(&self) -> Vec<u8>;
     fn encode_pair(&self, key: &[u8], value: &[u8]) -> Vec<u8>;
     fn encode_values(&self, values: &[Vec<u8>]) -> Vec<u8>;
+    fn encode_raw(&self, raw: &[u8]) -> Vec<u8>;
 
     fn decode_hash(&self, data: &[u8], is_hash: bool) -> Self::Hash;
 }

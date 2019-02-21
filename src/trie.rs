@@ -637,4 +637,38 @@ mod tests {
         let removed = trie.remove(b"test23").unwrap();
         assert_eq!(true, removed);
     }
+
+    #[test]
+    fn test_multiple_trie_roots() {
+        let root1 = {
+            let mut db = MemoryDB::new();
+            let mut trie = PatriciaTrie::new(&mut db, RLPNodeCodec::default());
+            trie.insert(b"a", b"a").unwrap();
+            trie.root().unwrap()
+        };
+
+        let root2 = {
+            let mut db = MemoryDB::new();
+            let mut trie = PatriciaTrie::new(&mut db, RLPNodeCodec::default());
+            trie.insert(b"a", b"a").unwrap();
+            trie.insert(b"b", b"b").unwrap();
+            trie.root().unwrap();
+            trie.remove(b"b").unwrap();
+            trie.root().unwrap()
+        };
+
+        let root3 = {
+            let mut db = MemoryDB::new();
+            let mut t1 = PatriciaTrie::new(&mut db, RLPNodeCodec::default());
+            t1.insert(b"a", b"a").unwrap();
+            t1.insert(b"b", b"b").unwrap();
+            let root = t1.root().unwrap();
+            let mut t2 = PatriciaTrie::from(&mut db, RLPNodeCodec::default(), &root).unwrap();
+            t2.remove(b"b").unwrap();
+            t2.root().unwrap()
+        };
+
+        assert_eq!(root1, root2);
+        assert_eq!(root2, root3);
+    }
 }

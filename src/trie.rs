@@ -204,7 +204,7 @@ where
             }
         }?;
 
-        Ok((self.degenerate(new_n), deleted))
+        Ok((self.degenerate(new_n)?, deleted))
     }
 
     fn insert_at(&mut self, n: Node, partial: &Nibbles, value: &[u8]) -> TrieResult<Node, C, D> {
@@ -305,8 +305,8 @@ where
         }
     }
 
-    fn degenerate(&self, n: Node) -> Node {
-        match n {
+    fn degenerate(&self, n: Node) -> TrieResult<Node, C, D> {
+        let new_n = match n {
             Node::Branch(branch) => {
                 let mut used_indexs = vec![];
                 for index in 0..16 {
@@ -329,12 +329,12 @@ where
                     let new_node =
                         ExtensionNode::new(&Nibbles::from_hex(&[used_index as u8]), n.clone())
                             .into_node();
-                    self.degenerate(new_node)
+                    self.degenerate(new_node)?
                 } else {
                     branch.into_node()
                 }
             }
-            Node::Extension(extension) => {
+            Node::Extension(mut extension) => {
                 let prefix = extension.get_prefix();
 
                 match extension.get_node() {
@@ -342,17 +342,24 @@ where
                         let new_prefix = prefix.join(sub_ext.get_prefix());
                         let new_n =
                             ExtensionNode::new(&new_prefix, sub_ext.get_node().clone()).into_node();
-                        self.degenerate(new_n)
+                        self.degenerate(new_n)?
                     }
                     Node::Leaf(leaf) => {
                         let new_prefix = prefix.join(leaf.get_key());
                         LeafNode::new(&new_prefix, leaf.get_value()).into_node()
                     }
+                    // try again after recovering node from the db.
+                    Node::Hash(hash) => {
+                        extension.set_node(self.get_node_from_hash(hash.get_hash())?);
+                        self.degenerate(extension.into_node())?
+                    }
                     _ => extension.into_node(),
                 }
             }
             _ => n,
-        }
+        };
+
+        Ok(new_n)
     }
 
     fn commit(&mut self) -> TrieResult<C::Hash, C, D> {
@@ -478,6 +485,8 @@ where
 mod tests {
     use rand::distributions::Alphanumeric;
     use rand::{thread_rng, Rng};
+
+    use ethereum_types;
 
     use super::{PatriciaTrie, Trie};
     use crate::codec::{NodeCodec, RLPNodeCodec};
@@ -636,5 +645,44 @@ mod tests {
         assert_eq!(true, removed);
         let removed = trie.remove(b"test23").unwrap();
         assert_eq!(true, removed);
+    }
+
+    #[test]
+    fn test_multiple_trie_roots() {
+        let k0: ethereum_types::H256 = 0.into();
+        let k1: ethereum_types::H256 = 1.into();
+        let v: ethereum_types::H256 = 0x1234.into();
+
+        let root1 = {
+            let mut db = MemoryDB::new();
+            let mut trie = PatriciaTrie::new(&mut db, RLPNodeCodec::default());
+            trie.insert(k0.as_ref(), v.as_ref()).unwrap();
+            trie.root().unwrap()
+        };
+
+        let root2 = {
+            let mut db = MemoryDB::new();
+            let mut trie = PatriciaTrie::new(&mut db, RLPNodeCodec::default());
+            trie.insert(k0.as_ref(), v.as_ref()).unwrap();
+            trie.insert(k1.as_ref(), v.as_ref()).unwrap();
+            trie.root().unwrap();
+            trie.remove(k1.as_ref()).unwrap();
+            trie.root().unwrap()
+        };
+
+        let root3 = {
+            let mut db = MemoryDB::new();
+            let mut t1 = PatriciaTrie::new(&mut db, RLPNodeCodec::default());
+            t1.insert(k0.as_ref(), v.as_ref()).unwrap();
+            t1.insert(k1.as_ref(), v.as_ref()).unwrap();
+            t1.root().unwrap();
+            let root = t1.root().unwrap();
+            let mut t2 = PatriciaTrie::from(&mut db, RLPNodeCodec::default(), &root).unwrap();
+            t2.remove(k1.as_ref()).unwrap();
+            t2.root().unwrap()
+        };
+
+        assert_eq!(root1, root2);
+        assert_eq!(root2, root3);
     }
 }

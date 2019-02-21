@@ -59,7 +59,15 @@ impl NodeCodec for RLPNodeCodec {
             Prototype::Data(0) => Ok(f(DataType::Empty)?),
             Prototype::List(2) => {
                 let key = r.at(0)?.data()?;
-                let value = r.at(1)?.data()?;
+                let rlp_data = r.at(1)?;
+                // TODO: if “is_data == true”, the value of the leaf node
+                // This is not a good implementation
+                // the details of MPT should not be exposed to the user.
+                let value = if rlp_data.is_data() {
+                    rlp_data.data()?
+                } else {
+                    rlp_data.as_raw()
+                };
 
                 Ok(f(DataType::Pair(&key, &value))?)
             }

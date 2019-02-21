@@ -486,6 +486,8 @@ mod tests {
     use rand::distributions::Alphanumeric;
     use rand::{thread_rng, Rng};
 
+    use ethereum_types;
+
     use super::{PatriciaTrie, Trie};
     use crate::codec::{NodeCodec, RLPNodeCodec};
     use crate::db::MemoryDB;
@@ -647,31 +649,36 @@ mod tests {
 
     #[test]
     fn test_multiple_trie_roots() {
+        let k0: ethereum_types::H256 = 0.into();
+        let k1: ethereum_types::H256 = 1.into();
+        let v: ethereum_types::H256 = 0x1234.into();
+
         let root1 = {
             let mut db = MemoryDB::new();
             let mut trie = PatriciaTrie::new(&mut db, RLPNodeCodec::default());
-            trie.insert(b"a", b"a").unwrap();
+            trie.insert(k0.as_ref(), v.as_ref()).unwrap();
             trie.root().unwrap()
         };
 
         let root2 = {
             let mut db = MemoryDB::new();
             let mut trie = PatriciaTrie::new(&mut db, RLPNodeCodec::default());
-            trie.insert(b"a", b"a").unwrap();
-            trie.insert(b"b", b"b").unwrap();
+            trie.insert(k0.as_ref(), v.as_ref()).unwrap();
+            trie.insert(k1.as_ref(), v.as_ref()).unwrap();
             trie.root().unwrap();
-            trie.remove(b"b").unwrap();
+            trie.remove(k1.as_ref()).unwrap();
             trie.root().unwrap()
         };
 
         let root3 = {
             let mut db = MemoryDB::new();
             let mut t1 = PatriciaTrie::new(&mut db, RLPNodeCodec::default());
-            t1.insert(b"a", b"a").unwrap();
-            t1.insert(b"b", b"b").unwrap();
+            t1.insert(k0.as_ref(), v.as_ref()).unwrap();
+            t1.insert(k1.as_ref(), v.as_ref()).unwrap();
+            t1.root().unwrap();
             let root = t1.root().unwrap();
             let mut t2 = PatriciaTrie::from(&mut db, RLPNodeCodec::default(), &root).unwrap();
-            t2.remove(b"b").unwrap();
+            t2.remove(k1.as_ref()).unwrap();
             t2.root().unwrap()
         };
 

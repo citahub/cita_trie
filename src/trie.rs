@@ -204,7 +204,7 @@ where
             }
         }?;
 
-        Ok((self.degenerate(new_n), deleted))
+        Ok((self.degenerate(new_n)?, deleted))
     }
 
     fn insert_at(&mut self, n: Node, partial: &Nibbles, value: &[u8]) -> TrieResult<Node, C, D> {
@@ -305,8 +305,8 @@ where
         }
     }
 
-    fn degenerate(&self, n: Node) -> Node {
-        match n {
+    fn degenerate(&self, n: Node) -> TrieResult<Node, C, D> {
+        let new_n = match n {
             Node::Branch(branch) => {
                 let mut used_indexs = vec![];
                 for index in 0..16 {
@@ -329,12 +329,12 @@ where
                     let new_node =
                         ExtensionNode::new(&Nibbles::from_hex(&[used_index as u8]), n.clone())
                             .into_node();
-                    self.degenerate(new_node)
+                    self.degenerate(new_node)?
                 } else {
                     branch.into_node()
                 }
             }
-            Node::Extension(extension) => {
+            Node::Extension(mut extension) => {
                 let prefix = extension.get_prefix();
 
                 match extension.get_node() {
@@ -342,17 +342,24 @@ where
                         let new_prefix = prefix.join(sub_ext.get_prefix());
                         let new_n =
                             ExtensionNode::new(&new_prefix, sub_ext.get_node().clone()).into_node();
-                        self.degenerate(new_n)
+                        self.degenerate(new_n)?
                     }
                     Node::Leaf(leaf) => {
                         let new_prefix = prefix.join(leaf.get_key());
                         LeafNode::new(&new_prefix, leaf.get_value()).into_node()
                     }
+                    // try again after recovering node from the db.
+                    Node::Hash(hash) => {
+                        extension.set_node(self.get_node_from_hash(hash.get_hash())?);
+                        self.degenerate(extension.into_node())?
+                    }
                     _ => extension.into_node(),
                 }
             }
             _ => n,
-        }
+        };
+
+        Ok(new_n)
     }
 
     fn commit(&mut self) -> TrieResult<C::Hash, C, D> {

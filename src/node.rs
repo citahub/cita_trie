@@ -1,4 +1,5 @@
 use crate::nibbles::Nibbles;
+use std::mem;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Node {
@@ -9,10 +10,28 @@ pub enum Node {
     Hash(HashNode),
 }
 
+impl Node {
+    pub fn swap(&mut self, mut n: Node) -> Node {
+        mem::swap(self, &mut n);
+        n
+    }
+    pub fn take(&mut self) -> Node {
+        self.swap(Node::Empty)
+    }
+}
+
+#[test]
+fn test_swap() {
+    let mut node = Node::Leaf(LeafNode::new(&Nibbles::from_raw(b"123", true), b"123"));
+    let cp = node.clone();
+    assert_eq!(node.take(), cp);
+    assert_eq!(node, Node::Empty);
+}
+
 #[derive(Debug, Clone, Eq, PartialEq, Default)]
 pub struct LeafNode {
-    key: Nibbles,
-    value: Vec<u8>,
+    pub(crate) key: Nibbles,
+    pub(crate) value: Vec<u8>,
 }
 
 impl LeafNode {
@@ -71,6 +90,10 @@ impl BranchNode {
         &self.children[i]
     }
 
+    pub fn child_mut(&mut self, i: usize) -> &mut Node {
+        &mut self.children[i]
+    }
+
     pub fn insert(&mut self, i: usize, n: Node) {
         if i == 16 {
             match n {
@@ -102,8 +125,8 @@ impl BranchNode {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ExtensionNode {
-    prefix: Nibbles,
-    node: Box<Node>,
+    pub(crate) prefix: Nibbles,
+    pub(crate) node: Box<Node>,
 }
 
 impl ExtensionNode {

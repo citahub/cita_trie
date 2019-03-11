@@ -60,8 +60,8 @@ where
             self.remove(key)?;
             return Ok(());
         }
-        let root = self.insert_at(self.root.clone(), &Nibbles::from_raw(key, true), value)?;
-        self.root = root;
+        let root = self.root.clone();
+        self.root = self.insert_at(root, &Nibbles::from_raw(key, true), value)?;
         Ok(())
     }
 
@@ -210,12 +210,13 @@ where
     fn insert_at(&mut self, n: Node, partial: &Nibbles, value: &[u8]) -> TrieResult<Node, C, D> {
         match n {
             Node::Empty => Ok(LeafNode::new(partial, value).into_node()),
-            Node::Leaf(leaf) => {
+            Node::Leaf(mut leaf) => {
                 let old_partial = leaf.get_key();
                 let match_index = partial.common_prefix(old_partial);
                 if match_index == old_partial.len() {
                     // replace leaf value
-                    return Ok(LeafNode::new(old_partial, value).into_node());
+                    leaf.value = value.to_vec();
+                    return Ok(leaf.into_node());
                 }
 
                 // create branch node
@@ -247,17 +248,16 @@ where
                     Ok(branch.into_node())
                 } else {
                     let index = partial.at(0) as usize;
-                    let new_n = self.insert_at(
-                        branch.at_children(index).clone(),
-                        &partial.slice(1, partial.len()),
-                        value,
-                    )?;
-                    branch.insert(index, new_n);
+                    let child = branch.child_mut(index);
+                    let new_n =
+                        self.insert_at(child.take(), &partial.slice(1, partial.len()), value)?;
+                    child.swap(new_n);
                     Ok(branch.into_node())
                 }
             }
             Node::Extension(extension) => {
-                let prefix = extension.get_prefix();
+                let prefix = extension.prefix;
+                let sub_node = extension.node;
                 let match_index = partial.common_prefix(&prefix);
 
                 if match_index == 0 {
@@ -265,29 +265,30 @@ where
                     branch.insert(
                         prefix.at(0) as usize,
                         if prefix.len() == 1 {
-                            extension.get_node().clone()
+                            *sub_node
                         } else {
-                            ExtensionNode::new(
-                                &prefix.slice(1, prefix.len()),
-                                extension.get_node().clone(),
-                            )
-                            .into_node()
+                            ExtensionNode::new(&prefix.slice(1, prefix.len()), *sub_node)
+                                .into_node()
                         },
                     );
                     self.insert_at(branch.into_node(), partial, value)
                 } else if match_index == prefix.len() {
                     let new_node = self.insert_at(
-                        extension.get_node().clone(),
+                        *sub_node,
                         &partial.slice(match_index, partial.len()),
                         value,
                     )?;
 
-                    Ok(ExtensionNode::new(prefix, new_node).into_node())
+                    Ok(ExtensionNode {
+                        prefix,
+                        node: Box::new(new_node),
+                    }
+                    .into_node())
                 } else {
-                    let new_ext = ExtensionNode::new(
-                        &prefix.slice(match_index, prefix.len()),
-                        extension.get_node().clone(),
-                    );
+                    let new_ext = ExtensionNode {
+                        prefix: prefix.slice(match_index, prefix.len()),
+                        node: sub_node,
+                    };
 
                     let new_n = self.insert_at(
                         new_ext.into_node(),
@@ -295,7 +296,11 @@ where
                         value,
                     )?;
 
-                    Ok(ExtensionNode::new(&prefix.slice(0, match_index), new_n).into_node())
+                    Ok(ExtensionNode {
+                        prefix: prefix.slice(0, match_index),
+                        node: Box::new(new_n),
+                    }
+                    .into_node())
                 }
             }
             Node::Hash(hash) => {

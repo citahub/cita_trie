@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::codec::{DataType, NodeCodec};
 use crate::db::DB;
@@ -35,9 +35,11 @@ where
     db: &'db mut D,
     codec: C,
 
+    root_hash: C::Hash,
     cache: HashMap<C::Hash, Vec<u8>>,
 
-    deleted_keys: Vec<C::Hash>,
+    passing_keys: HashSet<C::Hash>,
+    gen_keys: HashSet<C::Hash>,
 }
 
 impl<'db, C, D> Trie<C, D> for PatriciaTrie<'db, C, D>
@@ -82,13 +84,17 @@ where
     D: DB,
 {
     pub fn new(db: &'db mut D, codec: C) -> Self {
+        let empty_root_hash = codec.decode_hash(&codec.encode_empty(), false);
+
         PatriciaTrie {
             root: Node::Empty,
             db,
             codec,
 
+            root_hash: empty_root_hash.clone(),
             cache: HashMap::new(),
-            deleted_keys: vec![],
+            passing_keys: HashSet::new(),
+            gen_keys: HashSet::new(),
         }
     }
 
@@ -100,8 +106,10 @@ where
                     db,
                     codec,
 
+                    root_hash: root.clone(),
                     cache: HashMap::new(),
-                    deleted_keys: vec![],
+                    passing_keys: HashSet::new(),
+                    gen_keys: HashSet::new(),
                 };
 
                 trie.root = trie.decode_node(&data).map_err(TrieError::NodeCodec)?;
@@ -194,13 +202,9 @@ where
                 }
             }
             Node::Hash(hash) => {
-                let (new_n, deleted) =
-                    self.delete_at(self.get_node_from_hash(hash.get_hash())?, partial)?;
-                if deleted {
-                    self.deleted_keys
-                        .push(self.codec.decode_hash(hash.get_hash(), true));
-                }
-                Ok((new_n, deleted))
+                self.passing_keys
+                    .insert(self.codec.decode_hash(hash.get_hash(), true));
+                self.delete_at(self.get_node_from_hash(hash.get_hash())?, partial)
             }
         }?;
 
@@ -304,6 +308,8 @@ where
                 }
             }
             Node::Hash(hash) => {
+                self.passing_keys
+                    .insert(self.codec.decode_hash(hash.get_hash(), true));
                 let n = self.get_node_from_hash(hash.get_hash())?;
                 self.insert_at(n, partial, value)
             }
@@ -382,10 +388,26 @@ where
             self.db.insert(k.as_ref(), &v).map_err(TrieError::DB)?;
         }
 
-        for key in self.deleted_keys.drain(..) {
+        let removed_keys: Vec<&C::Hash> = self
+            .passing_keys
+            .iter()
+            .filter(|h| !self.gen_keys.contains(&h))
+            .collect();
+
+        for key in removed_keys {
             self.db.remove(key.as_ref()).map_err(TrieError::DB)?;
         }
 
+        if self.root_hash != root_hash {
+            self.db
+                .remove(self.root_hash.as_ref())
+                .map_err(TrieError::DB)?;
+            self.root_hash = root_hash.clone();
+        }
+
+        self.gen_keys.clear();
+        self.passing_keys.clear();
+        self.root = self.get_node_from_hash(root_hash.as_ref())?;
         Ok(root_hash)
     }
 
@@ -466,6 +488,8 @@ where
         } else {
             let hash = self.codec.decode_hash(&data, false);
             self.cache.insert(hash.clone(), data);
+
+            self.gen_keys.insert(hash.clone());
             Vec::from(hash.as_ref())
         }
     }
@@ -495,7 +519,7 @@ mod tests {
 
     use super::{PatriciaTrie, Trie};
     use crate::codec::{NodeCodec, RLPNodeCodec};
-    use crate::db::MemoryDB;
+    use crate::db::{MemoryDB, DB};
 
     #[test]
     fn test_trie_insert() {
@@ -689,5 +713,26 @@ mod tests {
 
         assert_eq!(root1, root2);
         assert_eq!(root2, root3);
+    }
+
+    #[test]
+    fn test_delete_all_stale_keys() {
+        let mut memdb = MemoryDB::new();
+        let mut trie = PatriciaTrie::new(&mut memdb, RLPNodeCodec::default());
+        for i in 0..10 {
+            trie.insert(format!("test{}", i).as_bytes(), b"testvalue")
+                .unwrap();
+        }
+        trie.commit().unwrap();
+        for i in 0..10 {
+            trie.remove(format!("test{}", i).as_bytes()).unwrap();
+        }
+        trie.commit().unwrap();
+        assert_eq!(1, trie.db.len().unwrap());
+
+        let codec = RLPNodeCodec::default();
+        let empty_node_key = codec.decode_hash(&codec.encode_empty(), false);
+        let value = trie.db.get(empty_node_key.as_ref()).unwrap().unwrap();
+        assert_eq!(value, codec.encode_empty())
     }
 }

@@ -13,7 +13,7 @@ fn insert_worse_case_benchmark(c: &mut Criterion) {
             let mut buf = Vec::new();
             for i in 0..N {
                 buf.push(i as u8);
-                trie.insert(&buf, b"testvalue").unwrap();
+                trie.insert(&buf, b"testvalue".to_vec()).unwrap();
             }
         })
     });

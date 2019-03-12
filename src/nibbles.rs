@@ -6,10 +6,8 @@ pub struct Nibbles {
 }
 
 impl Nibbles {
-    pub fn from_hex(hex: &[u8]) -> Self {
-        Nibbles {
-            hex_data: hex.to_vec(),
-        }
+    pub fn from_hex(hex: Vec<u8>) -> Self {
+        Nibbles { hex_data: hex }
     }
 
     pub fn from_raw(raw: &[u8], is_leaf: bool) -> Self {
@@ -127,7 +125,7 @@ impl Nibbles {
     }
 
     pub fn slice(&self, start: usize, end: usize) -> Nibbles {
-        Nibbles::from_hex(&self.hex_data[start..end])
+        Nibbles::from_hex(self.hex_data[start..end].to_vec())
     }
 
     pub fn get_data(&self) -> &[u8] {
@@ -138,7 +136,7 @@ impl Nibbles {
         let mut hex_data = vec![];
         hex_data.extend_from_slice(self.get_data());
         hex_data.extend_from_slice(b.get_data());
-        Nibbles::from_hex(&hex_data)
+        Nibbles::from_hex(hex_data)
     }
 }
 

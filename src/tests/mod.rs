@@ -87,8 +87,8 @@ mod trie_tests {
     fn assert_root(data: Vec<(&[u8], &[u8])>, hash: &str) {
         let mut memdb = MemoryDB::new();
         let mut trie = PatriciaTrie::new(&mut memdb, RLPNodeCodec::default());
-        for (k, v) in data.iter() {
-            trie.insert(k, v).unwrap();
+        for (k, v) in data.into_iter() {
+            trie.insert(k, v.to_vec()).unwrap();
         }
         let r = format!("0x{}", hex::encode(trie.root().unwrap()));
         assert_eq!(r.as_str(), hash);

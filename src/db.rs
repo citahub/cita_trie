@@ -12,6 +12,11 @@ pub trait DB: Send + Sync + Debug {
     fn insert(&mut self, key: &[u8], value: &[u8]) -> Result<(), Self::Error>;
     fn contains(&self, key: &[u8]) -> Result<bool, Self::Error>;
     fn remove(&mut self, key: &[u8]) -> Result<(), Self::Error>;
+
+    #[cfg(test)]
+    fn len(&self) -> Result<usize, Self::Error>;
+    #[cfg(test)]
+    fn is_empty(&self) -> Result<bool, Self::Error>;
 }
 
 #[derive(Default, Debug)]
@@ -53,6 +58,15 @@ impl DB for MemoryDB {
     fn remove(&mut self, key: &[u8]) -> Result<(), Self::Error> {
         self.storage.write().unwrap().remove(key);
         Ok(())
+    }
+
+    #[cfg(test)]
+    fn len(&self) -> Result<usize, Self::Error> {
+        Ok(self.storage.try_read().unwrap().len())
+    }
+    #[cfg(test)]
+    fn is_empty(&self) -> Result<bool, Self::Error> {
+        Ok(self.storage.try_read().unwrap().is_empty())
     }
 }
 

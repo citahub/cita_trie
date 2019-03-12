@@ -316,7 +316,7 @@ where
         }
     }
 
-    fn degenerate(&self, n: Node) -> TrieResult<Node, C, D> {
+    fn degenerate(&mut self, n: Node) -> TrieResult<Node, C, D> {
         let new_n = match n {
             Node::Branch(branch) => {
                 let mut used_indexs = vec![];
@@ -361,6 +361,8 @@ where
                     }
                     // try again after recovering node from the db.
                     Node::Hash(hash) => {
+                        self.passing_keys
+                            .insert(self.codec.decode_hash(hash.get_hash(), true));
                         extension.set_node(self.get_node_from_hash(hash.get_hash())?);
                         self.degenerate(extension.into_node())?
                     }
@@ -513,6 +515,7 @@ where
 #[cfg(test)]
 mod tests {
     use rand::distributions::Alphanumeric;
+    use rand::seq::SliceRandom;
     use rand::{thread_rng, Rng};
 
     use ethereum_types;
@@ -716,16 +719,25 @@ mod tests {
     }
 
     #[test]
-    fn test_delete_all_stale_keys() {
+    fn test_delete_stale_keys_with_random_insert_and_delete() {
         let mut memdb = MemoryDB::new();
         let mut trie = PatriciaTrie::new(&mut memdb, RLPNodeCodec::default());
-        for i in 0..10 {
-            trie.insert(format!("test{}", i).as_bytes(), b"testvalue")
-                .unwrap();
+
+        let mut rng = rand::thread_rng();
+        let mut keys = vec![];
+        for _ in 0..100 {
+            let random_bytes: Vec<u8> = (0..rng.gen_range(2, 30))
+                .map(|_| rand::random::<u8>())
+                .collect();
+            trie.insert(&random_bytes, &random_bytes).unwrap();
+            keys.push(random_bytes.clone());
         }
         trie.commit().unwrap();
-        for i in 0..10 {
-            trie.remove(format!("test{}", i).as_bytes()).unwrap();
+        let slice = &mut keys;
+        slice.shuffle(&mut rng);
+
+        for key in slice.iter() {
+            trie.remove(key).unwrap();
         }
         trie.commit().unwrap();
         assert_eq!(1, trie.db.len().unwrap());

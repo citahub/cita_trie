@@ -62,7 +62,7 @@ where
             self.remove(key)?;
             return Ok(());
         }
-        let root = self.root.clone();
+        let root = self.root.take();
         self.root = self.insert_at(root, &Nibbles::from_raw(key, true), value)?;
         Ok(())
     }

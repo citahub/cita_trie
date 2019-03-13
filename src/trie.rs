@@ -16,7 +16,7 @@ pub trait Trie<C: NodeCodec, D: DB> {
     fn contains(&self, key: &[u8]) -> TrieResult<bool, C, D>;
 
     /// inserts value into trie and modifies it if it exists
-    fn insert(&mut self, key: &[u8], value: &[u8]) -> TrieResult<(), C, D>;
+    fn insert(&mut self, key: &[u8], value: Vec<u8>) -> TrieResult<(), C, D>;
 
     /// removes any existing value for key from the trie.
     fn remove(&mut self, key: &[u8]) -> TrieResult<bool, C, D>;
@@ -57,13 +57,13 @@ where
             .map_or(false, |_| true))
     }
 
-    fn insert(&mut self, key: &[u8], value: &[u8]) -> TrieResult<(), C, D> {
+    fn insert(&mut self, key: &[u8], value: Vec<u8>) -> TrieResult<(), C, D> {
         if value.is_empty() {
             self.remove(key)?;
             return Ok(());
         }
         let root = self.root.clone();
-        self.root = self.insert_at(root, &Nibbles::from_raw(key, true), value)?;
+        self.root = self.insert_at(root, Nibbles::from_raw(key, true), value)?;
         Ok(())
     }
 
@@ -211,7 +211,7 @@ where
         Ok((self.degenerate(new_n)?, deleted))
     }
 
-    fn insert_at(&mut self, n: Node, partial: &Nibbles, value: &[u8]) -> TrieResult<Node, C, D> {
+    fn insert_at(&mut self, n: Node, partial: Nibbles, value: Vec<u8>) -> TrieResult<Node, C, D> {
         match n {
             Node::Empty => Ok(LeafNode::new(partial, value).into_node()),
             Node::Leaf(mut leaf) => {
@@ -219,19 +219,19 @@ where
                 let match_index = partial.common_prefix(old_partial);
                 if match_index == old_partial.len() {
                     // replace leaf value
-                    leaf.value = value.to_vec();
+                    leaf.value = value;
                     return Ok(leaf.into_node());
                 }
 
                 // create branch node
                 let mut branch = BranchNode::new();
-                let n = LeafNode::new(&partial.slice(match_index + 1, partial.len()), value)
-                    .into_node();
+                let n =
+                    LeafNode::new(partial.slice(match_index + 1, partial.len()), value).into_node();
                 branch.insert(partial.at(match_index) as usize, n);
 
                 let n = LeafNode::new(
-                    &old_partial.slice(match_index + 1, old_partial.len()),
-                    leaf.get_value(),
+                    old_partial.slice(match_index + 1, old_partial.len()),
+                    leaf.get_value().to_vec(),
                 )
                 .into_node();
                 branch.insert(old_partial.at(match_index) as usize, n);
@@ -242,19 +242,19 @@ where
 
                 // if include a common prefix
                 Ok(
-                    ExtensionNode::new(&partial.slice(0, match_index), branch.into_node())
+                    ExtensionNode::new(partial.slice(0, match_index), branch.into_node())
                         .into_node(),
                 )
             }
             Node::Branch(mut branch) => {
                 if partial.at(0) == 16 {
-                    branch.set_value(Some(value.to_vec()));
+                    branch.set_value(Some(value));
                     Ok(branch.into_node())
                 } else {
                     let index = partial.at(0) as usize;
                     let child = branch.child_mut(index);
                     let new_n =
-                        self.insert_at(child.take(), &partial.slice(1, partial.len()), value)?;
+                        self.insert_at(child.take(), partial.slice(1, partial.len()), value)?;
                     child.swap(new_n);
                     Ok(branch.into_node())
                 }
@@ -271,15 +271,14 @@ where
                         if prefix.len() == 1 {
                             *sub_node
                         } else {
-                            ExtensionNode::new(&prefix.slice(1, prefix.len()), *sub_node)
-                                .into_node()
+                            ExtensionNode::new(prefix.slice(1, prefix.len()), *sub_node).into_node()
                         },
                     );
                     self.insert_at(branch.into_node(), partial, value)
                 } else if match_index == prefix.len() {
                     let new_node = self.insert_at(
                         *sub_node,
-                        &partial.slice(match_index, partial.len()),
+                        partial.slice(match_index, partial.len()),
                         value,
                     )?;
 
@@ -296,7 +295,7 @@ where
 
                     let new_n = self.insert_at(
                         new_ext.into_node(),
-                        &partial.slice(match_index, partial.len()),
+                        partial.slice(match_index, partial.len()),
                         value,
                     )?;
 
@@ -330,7 +329,7 @@ where
                 // if only a value node, transmute to leaf.
                 if used_indexs.is_empty() && branch.get_value().is_some() {
                     let key = Nibbles::from_raw(&[], true);
-                    LeafNode::new(&key, branch.get_value().unwrap()).into_node()
+                    LeafNode::new(key, branch.get_value().unwrap().to_vec()).into_node()
 
                 // if only one node. make an extension.
                 } else if used_indexs.len() == 1 && branch.get_value().is_none() {
@@ -338,7 +337,7 @@ where
                     let n = branch.at_children(used_index);
 
                     let new_node =
-                        ExtensionNode::new(&Nibbles::from_hex(&[used_index as u8]), n.clone())
+                        ExtensionNode::new(Nibbles::from_hex(vec![used_index as u8]), n.clone())
                             .into_node();
                     self.degenerate(new_node)?
                 } else {
@@ -352,12 +351,12 @@ where
                     Node::Extension(sub_ext) => {
                         let new_prefix = prefix.join(sub_ext.get_prefix());
                         let new_n =
-                            ExtensionNode::new(&new_prefix, sub_ext.get_node().clone()).into_node();
+                            ExtensionNode::new(new_prefix, sub_ext.get_node().clone()).into_node();
                         self.degenerate(new_n)?
                     }
                     Node::Leaf(leaf) => {
                         let new_prefix = prefix.join(leaf.get_key());
-                        LeafNode::new(&new_prefix, leaf.get_value()).into_node()
+                        LeafNode::new(new_prefix, leaf.get_value().to_vec()).into_node()
                     }
                     // try again after recovering node from the db.
                     Node::Hash(hash) => {
@@ -419,10 +418,10 @@ where
             DataType::Pair(key, value) => {
                 let nibble = Nibbles::from_compact(key);
                 if nibble.is_leaf() {
-                    Ok(LeafNode::new(&nibble, value).into_node())
+                    Ok(LeafNode::new(nibble, value.to_vec()).into_node())
                 } else {
                     let n = self.try_decode_hash_node(value)?;;
-                    Ok(ExtensionNode::new(&nibble, n).into_node())
+                    Ok(ExtensionNode::new(nibble, n).into_node())
                 }
             }
             DataType::Values(values) => {
@@ -528,14 +527,14 @@ mod tests {
     fn test_trie_insert() {
         let mut memdb = MemoryDB::new();
         let mut trie = PatriciaTrie::new(&mut memdb, RLPNodeCodec::default());
-        trie.insert(b"test", b"test").unwrap();
+        trie.insert(b"test", b"test".to_vec()).unwrap();
     }
 
     #[test]
     fn test_trie_get() {
         let mut memdb = MemoryDB::new();
         let mut trie = PatriciaTrie::new(&mut memdb, RLPNodeCodec::default());
-        trie.insert(b"test", b"test").unwrap();
+        trie.insert(b"test", b"test".to_vec()).unwrap();
         let v = trie.get(b"test").unwrap().map(|v| v.to_vec());
 
         assert_eq!(Some(b"test".to_vec()), v)
@@ -549,7 +548,7 @@ mod tests {
         for _ in 0..1000 {
             let rand_str: String = thread_rng().sample_iter(&Alphanumeric).take(30).collect();
             let val = rand_str.as_bytes();
-            trie.insert(val, val).unwrap();
+            trie.insert(val, val.to_vec()).unwrap();
 
             let v = trie.get(val).unwrap();
             assert_eq!(v.map(|v| v.to_vec()), Some(val.to_vec()));
@@ -560,7 +559,7 @@ mod tests {
     fn test_trie_contains() {
         let mut memdb = MemoryDB::new();
         let mut trie = PatriciaTrie::new(&mut memdb, RLPNodeCodec::default());
-        trie.insert(b"test", b"test").unwrap();
+        trie.insert(b"test", b"test".to_vec()).unwrap();
         assert_eq!(true, trie.contains(b"test").unwrap());
         assert_eq!(false, trie.contains(b"test2").unwrap());
     }
@@ -569,7 +568,7 @@ mod tests {
     fn test_trie_remove() {
         let mut memdb = MemoryDB::new();
         let mut trie = PatriciaTrie::new(&mut memdb, RLPNodeCodec::default());
-        trie.insert(b"test", b"test").unwrap();
+        trie.insert(b"test", b"test".to_vec()).unwrap();
         let removed = trie.remove(b"test").unwrap();
         assert_eq!(true, removed)
     }
@@ -582,7 +581,7 @@ mod tests {
         for _ in 0..1000 {
             let rand_str: String = thread_rng().sample_iter(&Alphanumeric).take(30).collect();
             let val = rand_str.as_bytes();
-            trie.insert(val, val).unwrap();
+            trie.insert(val, val.to_vec()).unwrap();
 
             let removed = trie.remove(val).unwrap();
             assert_eq!(true, removed);
@@ -605,7 +604,7 @@ mod tests {
     fn test_trie_commit() {
         let mut memdb = MemoryDB::new();
         let mut trie = PatriciaTrie::new(&mut memdb, RLPNodeCodec::default());
-        trie.insert(b"test", b"test").unwrap();
+        trie.insert(b"test", b"test".to_vec()).unwrap();
         let root = trie.commit().unwrap();
 
         let codec = RLPNodeCodec::default();
@@ -618,12 +617,12 @@ mod tests {
         let mut memdb = MemoryDB::new();
         let root = {
             let mut trie = PatriciaTrie::new(&mut memdb, RLPNodeCodec::default());
-            trie.insert(b"test", b"test").unwrap();
-            trie.insert(b"test1", b"test").unwrap();
-            trie.insert(b"test2", b"test").unwrap();
-            trie.insert(b"test23", b"test").unwrap();
-            trie.insert(b"test33", b"test").unwrap();
-            trie.insert(b"test44", b"test").unwrap();
+            trie.insert(b"test", b"test".to_vec()).unwrap();
+            trie.insert(b"test1", b"test".to_vec()).unwrap();
+            trie.insert(b"test2", b"test".to_vec()).unwrap();
+            trie.insert(b"test23", b"test".to_vec()).unwrap();
+            trie.insert(b"test33", b"test".to_vec()).unwrap();
+            trie.insert(b"test44", b"test".to_vec()).unwrap();
             trie.root().unwrap()
         };
 
@@ -641,17 +640,17 @@ mod tests {
         let mut memdb = MemoryDB::new();
         let root = {
             let mut trie = PatriciaTrie::new(&mut memdb, RLPNodeCodec::default());
-            trie.insert(b"test", b"test").unwrap();
-            trie.insert(b"test1", b"test").unwrap();
-            trie.insert(b"test2", b"test").unwrap();
-            trie.insert(b"test23", b"test").unwrap();
-            trie.insert(b"test33", b"test").unwrap();
-            trie.insert(b"test44", b"test").unwrap();
+            trie.insert(b"test", b"test".to_vec()).unwrap();
+            trie.insert(b"test1", b"test".to_vec()).unwrap();
+            trie.insert(b"test2", b"test".to_vec()).unwrap();
+            trie.insert(b"test23", b"test".to_vec()).unwrap();
+            trie.insert(b"test33", b"test".to_vec()).unwrap();
+            trie.insert(b"test44", b"test".to_vec()).unwrap();
             trie.commit().unwrap()
         };
 
         let mut trie = PatriciaTrie::from(&mut memdb, RLPNodeCodec::default(), &root).unwrap();
-        trie.insert(b"test55", b"test55").unwrap();
+        trie.insert(b"test55", b"test55".to_vec()).unwrap();
         let v = trie.get(b"test55").unwrap();
         assert_eq!(Some(b"test55".to_vec()), v);
     }
@@ -661,12 +660,12 @@ mod tests {
         let mut memdb = MemoryDB::new();
         let root = {
             let mut trie = PatriciaTrie::new(&mut memdb, RLPNodeCodec::default());
-            trie.insert(b"test", b"test").unwrap();
-            trie.insert(b"test1", b"test").unwrap();
-            trie.insert(b"test2", b"test").unwrap();
-            trie.insert(b"test23", b"test").unwrap();
-            trie.insert(b"test33", b"test").unwrap();
-            trie.insert(b"test44", b"test").unwrap();
+            trie.insert(b"test", b"test".to_vec()).unwrap();
+            trie.insert(b"test1", b"test".to_vec()).unwrap();
+            trie.insert(b"test2", b"test".to_vec()).unwrap();
+            trie.insert(b"test23", b"test".to_vec()).unwrap();
+            trie.insert(b"test33", b"test".to_vec()).unwrap();
+            trie.insert(b"test44", b"test".to_vec()).unwrap();
             trie.commit().unwrap()
         };
 
@@ -688,15 +687,15 @@ mod tests {
         let root1 = {
             let mut db = MemoryDB::new();
             let mut trie = PatriciaTrie::new(&mut db, RLPNodeCodec::default());
-            trie.insert(k0.as_ref(), v.as_ref()).unwrap();
+            trie.insert(k0.as_ref(), v.as_bytes().to_vec()).unwrap();
             trie.root().unwrap()
         };
 
         let root2 = {
             let mut db = MemoryDB::new();
             let mut trie = PatriciaTrie::new(&mut db, RLPNodeCodec::default());
-            trie.insert(k0.as_ref(), v.as_ref()).unwrap();
-            trie.insert(k1.as_ref(), v.as_ref()).unwrap();
+            trie.insert(k0.as_ref(), v.as_bytes().to_vec()).unwrap();
+            trie.insert(k1.as_ref(), v.as_bytes().to_vec()).unwrap();
             trie.root().unwrap();
             trie.remove(k1.as_ref()).unwrap();
             trie.root().unwrap()
@@ -705,8 +704,8 @@ mod tests {
         let root3 = {
             let mut db = MemoryDB::new();
             let mut t1 = PatriciaTrie::new(&mut db, RLPNodeCodec::default());
-            t1.insert(k0.as_ref(), v.as_ref()).unwrap();
-            t1.insert(k1.as_ref(), v.as_ref()).unwrap();
+            t1.insert(k0.as_ref(), v.as_bytes().to_vec()).unwrap();
+            t1.insert(k1.as_ref(), v.as_bytes().to_vec()).unwrap();
             t1.root().unwrap();
             let root = t1.root().unwrap();
             let mut t2 = PatriciaTrie::from(&mut db, RLPNodeCodec::default(), &root).unwrap();
@@ -729,7 +728,7 @@ mod tests {
             let random_bytes: Vec<u8> = (0..rng.gen_range(2, 30))
                 .map(|_| rand::random::<u8>())
                 .collect();
-            trie.insert(&random_bytes, &random_bytes).unwrap();
+            trie.insert(&random_bytes, random_bytes.clone()).unwrap();
             keys.push(random_bytes.clone());
         }
         trie.commit().unwrap();

@@ -22,7 +22,10 @@ impl Node {
 
 #[test]
 fn test_swap() {
-    let mut node = Node::Leaf(LeafNode::new(&Nibbles::from_raw(b"123", true), b"123"));
+    let mut node = Node::Leaf(LeafNode::new(
+        Nibbles::from_raw(b"123", true),
+        b"123".to_vec(),
+    ));
     let cp = node.clone();
     assert_eq!(node.take(), cp);
     assert_eq!(node, Node::Empty);
@@ -35,11 +38,8 @@ pub struct LeafNode {
 }
 
 impl LeafNode {
-    pub fn new(key: &Nibbles, value: &[u8]) -> Self {
-        LeafNode {
-            key: key.clone(),
-            value: value.to_vec(),
-        }
+    pub fn new(key: Nibbles, value: Vec<u8>) -> Self {
+        LeafNode { key, value }
     }
 
     pub fn get_value(&self) -> &[u8] {
@@ -98,7 +98,7 @@ impl BranchNode {
         if i == 16 {
             match n {
                 Node::Leaf(leaf) => {
-                    self.value = Some(leaf.get_value().to_vec());
+                    self.value = Some(leaf.value);
                 }
                 _ => panic!("The n must be leaf node"),
             }
@@ -130,9 +130,9 @@ pub struct ExtensionNode {
 }
 
 impl ExtensionNode {
-    pub fn new(prefix: &Nibbles, node: Node) -> Self {
+    pub fn new(prefix: Nibbles, node: Node) -> Self {
         ExtensionNode {
-            prefix: prefix.clone(),
+            prefix,
             node: Box::new(node),
         }
     }

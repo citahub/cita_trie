@@ -88,7 +88,7 @@ mod trie_tests {
         let mut memdb = MemoryDB::new();
         let mut trie = PatriciaTrie::new(&mut memdb, RLPNodeCodec::default());
         for (k, v) in data.into_iter() {
-            trie.insert(k, v.to_vec()).unwrap();
+            trie.insert(k, v).unwrap();
         }
         let r = format!("0x{}", hex::encode(trie.root().unwrap()));
         assert_eq!(r.as_str(), hash);

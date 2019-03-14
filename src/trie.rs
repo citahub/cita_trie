@@ -9,19 +9,20 @@ use crate::node::{BranchNode, ExtensionNode, HashNode, LeafNode, Node};
 pub type TrieResult<T, C, D> = Result<T, TrieError<C, D>>;
 
 pub trait Trie<C: NodeCodec, D: DB> {
-    /// returns the value for key stored in the trie.
+    /// Returns the value for key stored in the trie.
     fn get(&self, key: &[u8]) -> TrieResult<Option<Vec<u8>>, C, D>;
 
-    /// check that the key is present in the trie
+    /// Checks that the key is present in the trie
     fn contains(&self, key: &[u8]) -> TrieResult<bool, C, D>;
 
-    /// inserts value into trie and modifies it if it exists
+    /// Inserts value into trie and modifies it if it exists
     fn insert(&mut self, key: &[u8], value: &[u8]) -> TrieResult<(), C, D>;
 
-    /// removes any existing value for key from the trie.
+    /// Removes any existing value for key from the trie.
     fn remove(&mut self, key: &[u8]) -> TrieResult<bool, C, D>;
 
-    /// returns the root hash of the trie.
+    /// Saves all the nodes in the db, clears the cache data, recalculates the root.
+    /// Returns the root hash of the trie.
     fn root(&mut self) -> TrieResult<C::Hash, C, D>;
 }
 
@@ -384,7 +385,6 @@ where
             self.codec.decode_hash(&encoded, true)
         };
 
-        // TODO: batch operation
         for (k, v) in self.cache.drain() {
             self.db.insert(k.as_ref(), &v).map_err(TrieError::DB)?;
         }

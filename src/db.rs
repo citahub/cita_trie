@@ -1,11 +1,12 @@
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::Debug;
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
 
 use crate::errors::MemDBError;
 
-pub trait DB: Send + Sync + Debug {
+/// NOTE: `Clone` must be ensured to be thread-safe.
+pub trait DB: Send + Sync + Debug + Clone {
     type Error: Error;
 
     fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, Self::Error>;
@@ -21,13 +22,13 @@ pub trait DB: Send + Sync + Debug {
 
 #[derive(Default, Debug)]
 pub struct MemoryDB {
-    storage: RwLock<HashMap<Vec<u8>, Vec<u8>>>,
+    storage: Arc<RwLock<HashMap<Vec<u8>, Vec<u8>>>>,
 }
 
 impl MemoryDB {
     pub fn new() -> Self {
         MemoryDB {
-            storage: RwLock::new(HashMap::new()),
+            storage: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 }
@@ -67,6 +68,14 @@ impl DB for MemoryDB {
     #[cfg(test)]
     fn is_empty(&self) -> Result<bool, Self::Error> {
         Ok(self.storage.try_read().unwrap().is_empty())
+    }
+}
+
+impl Clone for MemoryDB {
+    fn clone(&self) -> Self {
+        MemoryDB {
+            storage: self.storage.clone(),
+        }
     }
 }
 

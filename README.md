@@ -19,7 +19,8 @@ The implementation is strongly inspired by [go-ethereum trie](https://github.com
 ### DB
 
 ```rust
-pub trait DB: Send + Sync + Debug {
+/// NOTE: `Clone` must be ensured to be thread-safe.
+pub trait DB: Send + Sync + Debug + Clone {
     type Error: Error;
 
     fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, Self::Error>;

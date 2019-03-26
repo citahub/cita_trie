@@ -20,8 +20,8 @@ The implementation is strongly inspired by [go-ethereum trie](https://github.com
 
 ```rust
 /// NOTE: `Clone` must be ensured to be thread-safe.
-pub trait DB: Send + Sync + Debug + Clone {
-    type Error: Error;
+pub trait DB: Send + Sync + Clone {
+    type Error: ::std::error::Error;
 
     fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, Self::Error>;
     fn insert(&mut self, key: &[u8], value: &[u8]) -> Result<(), Self::Error>;
@@ -33,7 +33,7 @@ pub trait DB: Send + Sync + Debug + Clone {
 ### Decoder
 
 ```rust
-pub trait NodeCodec: Sized + Debug {
+pub trait NodeCodec: Sized {
     type Error: ::std::error::Error;
 
     const HASH_LENGTH: usize;

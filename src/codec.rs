@@ -1,4 +1,3 @@
-use std::fmt::Debug;
 use std::hash;
 
 use crate::errors::RLPCodecError;
@@ -13,7 +12,7 @@ pub enum DataType<'a> {
     Hash(&'a [u8]),
 }
 
-pub trait NodeCodec: Sized + Debug {
+pub trait NodeCodec: Sized {
     type Error: ::std::error::Error;
 
     const HASH_LENGTH: usize;

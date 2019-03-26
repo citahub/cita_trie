@@ -1,12 +1,11 @@
 use std::collections::HashMap;
 use std::error::Error;
-use std::fmt::Debug;
 use std::sync::{Arc, RwLock};
 
 use crate::errors::MemDBError;
 
 /// NOTE: `Clone` must be ensured to be thread-safe.
-pub trait DB: Send + Sync + Debug + Clone {
+pub trait DB: Send + Sync + Clone {
     type Error: Error;
 
     fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, Self::Error>;

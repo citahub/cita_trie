@@ -4,7 +4,6 @@ use std::fmt;
 use crate::codec::NodeCodec;
 use crate::db::DB;
 
-#[derive(Debug)]
 pub enum TrieError<C: NodeCodec, D: DB> {
     NodeCodec(C::Error),
     DB(D::Error),
@@ -40,25 +39,15 @@ where
     }
 }
 
-// impl<C, D> From<C> for TrieError<C, D>
-// where
-//     C: NodeCodec,
-//     D: DB,
-// {
-//     fn from(error: C::Error) -> Self {
-//         TrieError::NodeCodec(error)
-//     }
-// }
-//
-// impl<C, D> From<C> for TrieError<C, D>
-// where
-//     C: NodeCodec,
-//     D: DB,
-// {
-//     fn from(error: D::Error) -> Self {
-//         TrieError::DB(error)
-//     }
-// }
+impl<C, D> fmt::Debug for TrieError<C, D>
+where
+    C: NodeCodec,
+    D: DB,
+{
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self)
+    }
+}
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum MemDBError {}

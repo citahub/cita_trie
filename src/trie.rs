@@ -399,10 +399,7 @@ where
             self.db.remove(key.as_ref()).map_err(TrieError::DB)?;
         }
 
-        if self.root_hash != root_hash {
-            self.root_hash = root_hash.clone();
-        }
-
+        self.root_hash = root_hash.clone();
         self.gen_keys.clear();
         self.passing_keys.clear();
         self.root = self.get_node_from_hash(root_hash.as_ref())?;

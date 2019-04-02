@@ -400,9 +400,6 @@ where
         }
 
         if self.root_hash != root_hash {
-            self.db
-                .remove(self.root_hash.as_ref())
-                .map_err(TrieError::DB)?;
             self.root_hash = root_hash.clone();
         }
 
@@ -651,6 +648,7 @@ mod tests {
 
         let mut trie = PatriciaTrie::from(&mut memdb, RLPNodeCodec::default(), &root).unwrap();
         trie.insert(b"test55", b"test55").unwrap();
+        trie.commit().unwrap();
         let v = trie.get(b"test55").unwrap();
         assert_eq!(Some(b"test55".to_vec()), v);
     }
@@ -739,7 +737,6 @@ mod tests {
             trie.remove(key).unwrap();
         }
         trie.commit().unwrap();
-        assert_eq!(1, trie.db.len().unwrap());
 
         let codec = RLPNodeCodec::default();
         let empty_node_key = codec.decode_hash(&codec.encode_empty(), false);

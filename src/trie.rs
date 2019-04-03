@@ -743,7 +743,7 @@ mod tests {
 
     #[test]
     fn insert_full_branch() {
-        let mut memdb = MemoryDB::new();
+        let mut memdb = MemoryDB::new(true);
         let mut trie = PatriciaTrie::new(&mut memdb, RLPNodeCodec::default());
 
         trie.insert(b"test", b"test").unwrap();

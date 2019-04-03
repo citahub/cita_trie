@@ -131,7 +131,7 @@ where
                 }
             }
             Node::Branch(ref branch) => {
-                if partial.is_empty() {
+                if partial.is_empty() || partial.at(0) == 16 {
                     Ok(branch.get_value().and_then(|v| Some(v.to_vec())))
                 } else {
                     let index = partial.at(0) as usize;
@@ -399,13 +399,7 @@ where
             self.db.remove(key.as_ref()).map_err(TrieError::DB)?;
         }
 
-        if self.root_hash != root_hash {
-            self.db
-                .remove(self.root_hash.as_ref())
-                .map_err(TrieError::DB)?;
-            self.root_hash = root_hash.clone();
-        }
-
+        self.root_hash = root_hash.clone();
         self.gen_keys.clear();
         self.passing_keys.clear();
         self.root = self.get_node_from_hash(root_hash.as_ref())?;
@@ -651,6 +645,7 @@ mod tests {
 
         let mut trie = PatriciaTrie::from(&mut memdb, RLPNodeCodec::default(), &root).unwrap();
         trie.insert(b"test55", b"test55").unwrap();
+        trie.commit().unwrap();
         let v = trie.get(b"test55").unwrap();
         assert_eq!(Some(b"test55".to_vec()), v);
     }
@@ -739,11 +734,26 @@ mod tests {
             trie.remove(key).unwrap();
         }
         trie.commit().unwrap();
-        assert_eq!(1, trie.db.len().unwrap());
 
         let codec = RLPNodeCodec::default();
         let empty_node_key = codec.decode_hash(&codec.encode_empty(), false);
         let value = trie.db.get(empty_node_key.as_ref()).unwrap().unwrap();
         assert_eq!(value, codec.encode_empty())
+    }
+
+    #[test]
+    fn insert_full_branch() {
+        let mut memdb = MemoryDB::new();
+        let mut trie = PatriciaTrie::new(&mut memdb, RLPNodeCodec::default());
+
+        trie.insert(b"test", b"test").unwrap();
+        trie.insert(b"test1", b"test").unwrap();
+        trie.insert(b"test2", b"test").unwrap();
+        trie.insert(b"test23", b"test").unwrap();
+        trie.insert(b"test33", b"test").unwrap();
+        trie.insert(b"test44", b"test").unwrap();
+        trie.root().unwrap();
+        let v = trie.get(b"test").unwrap();
+        assert_eq!(Some(b"test".to_vec()), v);
     }
 }

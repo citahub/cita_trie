@@ -72,8 +72,16 @@ impl NodeCodec for RLPNodeCodec {
             }
             Prototype::List(17) => {
                 let mut values = vec![];
-                for i in 0..17 {
+                for i in 0..16 {
                     values.push(r.at(i)?.as_raw().to_vec());
+                }
+
+                // The last element is a value node.
+                let value_rlp = r.at(16)?;
+                if value_rlp.is_empty() {
+                    values.push(self.encode_empty());
+                } else {
+                    values.push(value_rlp.data()?.to_vec());
                 }
                 Ok(f(DataType::Values(&values))?)
             }

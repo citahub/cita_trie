@@ -85,7 +85,7 @@ mod trie_tests {
     use crate::trie::{PatriciaTrie, Trie};
 
     fn assert_root(data: Vec<(&[u8], &[u8])>, hash: &str) {
-        let mut memdb = MemoryDB::new();
+        let mut memdb = MemoryDB::new(true);
         let mut trie = PatriciaTrie::new(&mut memdb, RLPNodeCodec::default());
         for (k, v) in data.iter() {
             trie.insert(k, v).unwrap();

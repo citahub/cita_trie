@@ -70,7 +70,7 @@ use cita_trie::db::MemoryDB;
 use cita_trie::trie::{PatriciaTrie, Trie};
 
 fn main() {
-    let mut memdb = MemoryDB::new();
+    let mut memdb = MemoryDB::new(true);
     let key = "test-key".as_bytes();
     let value = "test-value".as_bytes();
 

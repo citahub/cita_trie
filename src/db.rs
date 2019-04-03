@@ -22,12 +22,15 @@ pub trait DB: Send + Sync + Debug + Clone {
 
 #[derive(Default, Debug)]
 pub struct MemoryDB {
+    // If "light" is true, the data is deleted from the database at the time of submission.
+    light: bool,
     storage: Arc<RwLock<HashMap<Vec<u8>, Vec<u8>>>>,
 }
 
 impl MemoryDB {
-    pub fn new() -> Self {
+    pub fn new(light: bool) -> Self {
         MemoryDB {
+            light,
             storage: Arc::new(RwLock::new(HashMap::new())),
         }
     }
@@ -57,7 +60,9 @@ impl DB for MemoryDB {
     }
 
     fn remove(&mut self, key: &[u8]) -> Result<(), Self::Error> {
-        self.storage.write().unwrap().remove(key);
+        if self.light {
+            self.storage.write().unwrap().remove(key);
+        }
         Ok(())
     }
 
@@ -74,6 +79,7 @@ impl DB for MemoryDB {
 impl Clone for MemoryDB {
     fn clone(&self) -> Self {
         MemoryDB {
+            light: self.light,
             storage: self.storage.clone(),
         }
     }
@@ -85,7 +91,7 @@ mod tests {
 
     #[test]
     fn test_memdb_get() {
-        let mut memdb = MemoryDB::new();
+        let mut memdb = MemoryDB::new(true);
         memdb.insert(b"test-key", b"test-value").unwrap();
         let v = memdb.get(b"test-key").unwrap().unwrap();
 
@@ -94,7 +100,7 @@ mod tests {
 
     #[test]
     fn test_memdb_contains() {
-        let mut memdb = MemoryDB::new();
+        let mut memdb = MemoryDB::new(true);
         memdb.insert(b"test", b"test").unwrap();
 
         let contains = memdb.contains(b"test").unwrap();
@@ -103,7 +109,7 @@ mod tests {
 
     #[test]
     fn test_memdb_remove() {
-        let mut memdb = MemoryDB::new();
+        let mut memdb = MemoryDB::new(true);
         memdb.insert(b"test", b"test").unwrap();
 
         memdb.remove(b"test").unwrap();

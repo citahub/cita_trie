@@ -753,6 +753,7 @@ mod tests {
         trie.insert(b"test33", b"test").unwrap();
         trie.insert(b"test44", b"test").unwrap();
         trie.root().unwrap();
-        trie.get(b"test").unwrap();
+        let v = trie.get(b"test").unwrap();
+        assert_eq!(Some(b"test".to_vec()), v);
     }
 }

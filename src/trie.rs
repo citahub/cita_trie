@@ -131,7 +131,7 @@ where
                 }
             }
             Node::Branch(ref branch) => {
-                if partial.is_empty() {
+                if partial.is_empty() || partial.at(0) == 16 {
                     Ok(branch.get_value().and_then(|v| Some(v.to_vec())))
                 } else {
                     let index = partial.at(0) as usize;
@@ -739,5 +739,20 @@ mod tests {
         let empty_node_key = codec.decode_hash(&codec.encode_empty(), false);
         let value = trie.db.get(empty_node_key.as_ref()).unwrap().unwrap();
         assert_eq!(value, codec.encode_empty())
+    }
+
+    #[test]
+    fn insert_full_branch() {
+        let mut memdb = MemoryDB::new();
+        let mut trie = PatriciaTrie::new(&mut memdb, RLPNodeCodec::default());
+
+        trie.insert(b"test", b"test").unwrap();
+        trie.insert(b"test1", b"test").unwrap();
+        trie.insert(b"test2", b"test").unwrap();
+        trie.insert(b"test23", b"test").unwrap();
+        trie.insert(b"test33", b"test").unwrap();
+        trie.insert(b"test44", b"test").unwrap();
+        trie.root().unwrap();
+        trie.get(b"test").unwrap();
     }
 }

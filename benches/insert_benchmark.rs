@@ -7,7 +7,7 @@ use cita_trie::trie::{PatriciaTrie, Trie};
 fn insert_worse_case_benchmark(c: &mut Criterion) {
     c.bench_function("insert 100 items", |b| {
         b.iter(|| {
-            let mut memdb = MemoryDB::new();
+            let mut memdb = MemoryDB::new(true);
             let mut trie = PatriciaTrie::new(&mut memdb, RLPNodeCodec::default());
             const N: usize = 100;
             let mut buf = Vec::new();

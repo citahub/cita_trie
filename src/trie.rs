@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
 use crate::codec::{DataType, NodeCodec};
@@ -32,7 +33,7 @@ pub trait Trie<C: NodeCodec, D: DB> {
     /// If the trie does not contain a value for key, the returned proof contains all
     /// nodes of the longest existing prefix of the key (at least the root node), ending
     /// with the node that proves the absence of the key.
-    fn get_proof(&mut self, key: &[u8]) -> TrieResult<Vec<Vec<u8>>, C, D>;
+    fn get_proof(&self, key: &[u8]) -> TrieResult<Vec<Vec<u8>>, C, D>;
 
     /// return value if key exists, None if key not exist, Error if proof is wrong
     fn verify_proof(
@@ -54,10 +55,10 @@ where
     codec: C,
 
     root_hash: C::Hash,
-    cache: HashMap<C::Hash, Vec<u8>>,
+    cache: RefCell<HashMap<C::Hash, Vec<u8>>>,
 
     passing_keys: HashSet<C::Hash>,
-    gen_keys: HashSet<C::Hash>,
+    gen_keys: RefCell<HashSet<C::Hash>>,
 }
 
 impl<'db, C, D> Trie<C, D> for PatriciaTrie<'db, C, D>
@@ -95,9 +96,9 @@ where
         self.commit()
     }
 
-    fn get_proof(&mut self, key: &[u8]) -> TrieResult<Vec<Vec<u8>>, C, D> {
+    fn get_proof(&self, key: &[u8]) -> TrieResult<Vec<Vec<u8>>, C, D> {
         let path = self.get_path_at(&self.root, &Nibbles::from_raw(key, true))?;
-        Ok(path.iter().map(move |n| self.encode_node_raw(n)).collect())
+        Ok(path.iter().map(|n| self.encode_node_raw(n)).collect())
     }
 
     fn verify_proof(
@@ -132,9 +133,9 @@ where
             codec,
 
             root_hash: empty_root_hash.clone(),
-            cache: HashMap::new(),
+            cache: RefCell::new(HashMap::new()),
             passing_keys: HashSet::new(),
-            gen_keys: HashSet::new(),
+            gen_keys: RefCell::new(HashSet::new()),
         }
     }
 
@@ -147,9 +148,9 @@ where
                     codec,
 
                     root_hash: root.clone(),
-                    cache: HashMap::new(),
+                    cache: RefCell::new(HashMap::new()),
                     passing_keys: HashSet::new(),
-                    gen_keys: HashSet::new(),
+                    gen_keys: RefCell::new(HashSet::new()),
                 };
 
                 trie.root = trie.decode_node(&data).map_err(TrieError::NodeCodec)?;
@@ -197,7 +198,7 @@ where
         }
     }
 
-    fn get_path_at<'a>(&self, n: &'a Node, partial: &Nibbles) -> TrieResult<Vec<Node>, C, D> {
+    fn get_path_at(&self, n: &Node, partial: &Nibbles) -> TrieResult<Vec<Node>, C, D> {
         match n {
             Node::Empty => Ok(vec![]),
             Node::Leaf(_) => Ok(vec![n.clone()]),
@@ -456,20 +457,20 @@ where
         let encoded = self.encode_node(&self.root.clone());
         let root_hash = if encoded.len() < C::HASH_LENGTH {
             let hash = self.codec.decode_hash(&encoded, false);
-            self.cache.insert(hash.clone(), encoded);
+            self.cache.borrow_mut().insert(hash.clone(), encoded);
             hash
         } else {
             self.codec.decode_hash(&encoded, true)
         };
 
-        for (k, v) in self.cache.drain() {
+        for (k, v) in self.cache.borrow_mut().drain() {
             self.db.insert(k.as_ref(), &v).map_err(TrieError::DB)?;
         }
 
         let removed_keys: Vec<&C::Hash> = self
             .passing_keys
             .iter()
-            .filter(|h| !self.gen_keys.contains(&h))
+            .filter(|h| !self.gen_keys.borrow().contains(&h))
             .collect();
 
         for key in removed_keys {
@@ -477,7 +478,7 @@ where
         }
 
         self.root_hash = root_hash.clone();
-        self.gen_keys.clear();
+        self.gen_keys.borrow_mut().clear();
         self.passing_keys.clear();
         self.root = self.get_node_from_hash(root_hash.as_ref())?;
         Ok(root_hash)
@@ -513,7 +514,7 @@ where
         })
     }
 
-    fn encode_node(&mut self, n: &Node) -> Vec<u8> {
+    fn encode_node(&self, n: &Node) -> Vec<u8> {
         // Returns the hash value directly to avoid double counting.
         if let Node::Hash(hash) = n {
             return hash.get_hash().to_vec();
@@ -526,15 +527,15 @@ where
             data
         } else {
             let hash = self.codec.decode_hash(&data, false);
-            self.cache.insert(hash.clone(), data);
+            self.cache.borrow_mut().insert(hash.clone(), data);
 
-            self.gen_keys.insert(hash.clone());
+            self.gen_keys.borrow_mut().insert(hash.clone());
             Vec::from(hash.as_ref())
         }
     }
 
     /// encode node without final hash
-    fn encode_node_raw(&mut self, n: &Node) -> Vec<u8> {
+    fn encode_node_raw(&self, n: &Node) -> Vec<u8> {
         match n {
             Node::Empty => self.codec.encode_empty(),
             Node::Leaf(ref leaf) => self.codec.encode_pair(

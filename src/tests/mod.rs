@@ -4,7 +4,7 @@ use tiny_keccak;
 use crate::codec::{DataType, NodeCodec};
 use crate::errors::RLPCodecError;
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct RLPNodeCodec {}
 
 impl NodeCodec for RLPNodeCodec {
@@ -79,6 +79,7 @@ impl NodeCodec for RLPNodeCodec {
 #[cfg(test)]
 mod trie_tests {
     use hex::FromHex;
+    use rand::Rng;
 
     use super::RLPNodeCodec;
     use crate::db::MemoryDB;
@@ -614,4 +615,91 @@ mod trie_tests {
             "0x7a320748f780ad9ad5b0837302075ce0eeba6c26e3d8562c67ccc0f1b273298a",
         );
     }
+
+    #[test]
+    fn test_proof_basic() {
+        let mut memdb = MemoryDB::new(true);
+        let mut trie = PatriciaTrie::new(&mut memdb, RLPNodeCodec::default());
+        trie.insert(b"doe", b"reindeer").unwrap();
+        trie.insert(b"dog", b"puppy").unwrap();
+        trie.insert(b"dogglesworth", b"cat").unwrap();
+        let root = trie.root().unwrap();
+        let r = format!("0x{}", hex::encode(trie.root().unwrap()));
+        assert_eq!(
+            r.as_str(),
+            "0x8aad789dff2f538bca5d8ea56e8abe10f4c7ba3a5dea95fea4cd6e7c3a1168d3"
+        );
+
+        // proof of key exists
+        let proof = trie.get_proof(b"doe").unwrap();
+        let expected = vec![
+            "e5831646f6a0db6ae1fda66890f6693f36560d36b4dca68b4d838f17016b151efe1d4c95c453",
+            "f83b8080808080ca20887265696e6465657280a037efd11993cb04a54048c25320e9f29c50a432d28afdf01598b2978ce1ca3068808080808080808080",
+            "ca20887265696e64656572",
+        ];
+        assert_eq!(
+            proof
+                .clone()
+                .into_iter()
+                .map(hex::encode)
+                .collect::<Vec<_>>(),
+            expected
+        );
+        let value = trie.verify_proof(root, b"doe", proof).unwrap();
+        assert_eq!(value, Some(b"reindeer".to_vec()));
+
+        // proof of key not exist
+        let proof = trie.get_proof(b"dogg").unwrap();
+        let expected = vec![
+            "e5831646f6a0db6ae1fda66890f6693f36560d36b4dca68b4d838f17016b151efe1d4c95c453",
+            "f83b8080808080ca20887265696e6465657280a037efd11993cb04a54048c25320e9f29c50a432d28afdf01598b2978ce1ca3068808080808080808080",
+            "e5808080808080ce89376c6573776f7274688363617480808080808080808086857075707079",
+            "ce89376c6573776f72746883636174",
+        ];
+        assert_eq!(
+            proof
+                .clone()
+                .into_iter()
+                .map(hex::encode)
+                .collect::<Vec<_>>(),
+            expected
+        );
+        let value = trie.verify_proof(root, b"dogg", proof).unwrap();
+        assert_eq!(value, None);
+
+        // empty proof
+        let proof = vec![];
+        let value = trie.verify_proof(root, b"doe", proof);
+        assert_eq!(value.is_err(), true);
+
+        // bad proof
+        let proof = vec![b"aaa".to_vec(), b"ccc".to_vec()];
+        let value = trie.verify_proof(root, b"doe", proof);
+        assert_eq!(value.is_err(), true);
+    }
+
+    #[test]
+    fn test_proof_random() {
+        let mut memdb = MemoryDB::new(true);
+        let mut trie = PatriciaTrie::new(&mut memdb, RLPNodeCodec::default());
+        let mut rng = rand::thread_rng();
+        let mut keys = vec![];
+        for _ in 0..100 {
+            let random_bytes: Vec<u8> = (0..rng.gen_range(2, 30))
+                .map(|_| rand::random::<u8>())
+                .collect();
+            trie.insert(&random_bytes, &random_bytes).unwrap();
+            keys.push(random_bytes.clone());
+        }
+        for k in &keys {
+            trie.insert(k, k).unwrap();
+        }
+        let root = trie.root().unwrap();
+        for k in &keys {
+            let proof = trie.get_proof(k).unwrap();
+            let value = trie.verify_proof(root, k, proof).unwrap().unwrap();
+            assert_eq!(value, *k);
+        }
+    }
+
 }

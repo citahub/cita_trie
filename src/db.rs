@@ -79,7 +79,7 @@ impl Clone for MemoryDB {
     fn clone(&self) -> Self {
         MemoryDB {
             light: self.light,
-            storage: self.storage.clone(),
+            storage: Arc::clone(&self.storage),
         }
     }
 }

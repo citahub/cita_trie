@@ -12,7 +12,7 @@ pub enum DataType<'a> {
     Hash(&'a [u8]),
 }
 
-pub trait NodeCodec: Sized {
+pub trait NodeCodec: Sized + Clone {
     type Error: ::std::error::Error;
 
     const HASH_LENGTH: usize;
@@ -39,7 +39,7 @@ pub trait NodeCodec: Sized {
     fn decode_hash(&self, data: &[u8], is_hash: bool) -> Self::Hash;
 }
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct RLPNodeCodec {}
 
 impl NodeCodec for RLPNodeCodec {

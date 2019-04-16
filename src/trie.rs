@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::codec::{DataType, NodeCodec};
-use crate::db::DB;
+use crate::db::{MemoryDB, DB};
 use crate::errors::TrieError;
 use crate::nibbles::Nibbles;
 use crate::node::{BranchNode, ExtensionNode, HashNode, LeafNode, Node};
@@ -24,6 +24,23 @@ pub trait Trie<C: NodeCodec, D: DB> {
     /// Saves all the nodes in the db, clears the cache data, recalculates the root.
     /// Returns the root hash of the trie.
     fn root(&mut self) -> TrieResult<C::Hash, C, D>;
+
+    /// Prove constructs a merkle proof for key. The result contains all encoded nodes
+    /// on the path to the value at key. The value itself is also included in the last
+    /// node and can be retrieved by verifying the proof.
+    ///
+    /// If the trie does not contain a value for key, the returned proof contains all
+    /// nodes of the longest existing prefix of the key (at least the root node), ending
+    /// with the node that proves the absence of the key.
+    fn get_proof(&mut self, key: &[u8]) -> TrieResult<Vec<Vec<u8>>, C, D>;
+
+    /// return value if key exists, None if key not exist, Error if proof is wrong
+    fn verify_proof(
+        &self,
+        root_hash: C::Hash,
+        key: &[u8],
+        proof: Vec<Vec<u8>>,
+    ) -> TrieResult<Option<Vec<u8>>, C, D>;
 }
 
 #[derive(Debug)]
@@ -76,6 +93,28 @@ where
 
     fn root(&mut self) -> TrieResult<C::Hash, C, D> {
         self.commit()
+    }
+
+    fn get_proof(&mut self, key: &[u8]) -> TrieResult<Vec<Vec<u8>>, C, D> {
+        let path = self.get_path_at(&self.root, &Nibbles::from_raw(key, true))?;
+        Ok(path.iter().map(move |n| self.encode_node_raw(n)).collect())
+    }
+
+    fn verify_proof(
+        &self,
+        root_hash: C::Hash,
+        key: &[u8],
+        proof: Vec<Vec<u8>>,
+    ) -> TrieResult<Option<Vec<u8>>, C, D> {
+        let mut memdb = MemoryDB::new(true);
+        for node_encoded in proof {
+            let hash = self.codec.decode_hash(&node_encoded, false);
+            memdb.insert(hash.as_ref(), &node_encoded).unwrap();
+        }
+        let trie = PatriciaTrie::from(&mut memdb, self.codec.clone(), &root_hash)
+            .or(Err(TrieError::InvalidProof))?;
+        let value = trie.get(key).or(Err(TrieError::InvalidProof))?;
+        Ok(value)
     }
 }
 
@@ -154,6 +193,44 @@ where
             Node::Hash(hash) => {
                 let n = self.get_node_from_hash(hash.get_hash())?;
                 self.get_at(&n, partial)
+            }
+        }
+    }
+
+    fn get_path_at<'a>(&self, n: &'a Node, partial: &Nibbles) -> TrieResult<Vec<Node>, C, D> {
+        match n {
+            Node::Empty => Ok(vec![]),
+            Node::Leaf(_) => Ok(vec![n.clone()]),
+            Node::Branch(ref branch) => {
+                if partial.is_empty() || partial.at(0) == 16 {
+                    Ok(vec![n.clone()])
+                } else {
+                    let index = partial.at(0) as usize;
+                    let node = branch.at_children(index);
+                    let mut head = vec![n.clone()];
+                    let rest = self.get_path_at(node, &partial.slice(1, partial.len()))?;
+                    head.extend(rest);
+                    Ok(head)
+                }
+            }
+            Node::Extension(extension) => {
+                let prefix = extension.get_prefix();
+                let match_len = partial.common_prefix(prefix);
+                if match_len == prefix.len() {
+                    let rest = self.get_path_at(
+                        extension.get_node(),
+                        &partial.slice(match_len, partial.len()),
+                    )?;
+                    let mut head = vec![n.clone()];
+                    head.extend(rest);
+                    Ok(head)
+                } else {
+                    Ok(vec![n.clone()])
+                }
+            }
+            Node::Hash(hash) => {
+                let n = self.get_node_from_hash(hash.get_hash())?;
+                self.get_path_at(&n, partial)
             }
         }
     }
@@ -437,7 +514,28 @@ where
     }
 
     fn encode_node(&mut self, n: &Node) -> Vec<u8> {
-        let data = match n {
+        // Returns the hash value directly to avoid double counting.
+        if let Node::Hash(hash) = n {
+            return hash.get_hash().to_vec();
+        }
+        let data = self.encode_node_raw(n);
+
+        // Nodes smaller than 32 bytes are stored inside their parent,
+        // Nodes equal to 32 bytes are returned directly
+        if data.len() < C::HASH_LENGTH {
+            data
+        } else {
+            let hash = self.codec.decode_hash(&data, false);
+            self.cache.insert(hash.clone(), data);
+
+            self.gen_keys.insert(hash.clone());
+            Vec::from(hash.as_ref())
+        }
+    }
+
+    /// encode node without final hash
+    fn encode_node_raw(&mut self, n: &Node) -> Vec<u8> {
+        match n {
             Node::Empty => self.codec.encode_empty(),
             Node::Leaf(ref leaf) => self.codec.encode_pair(
                 &self.codec.encode_raw(&leaf.get_key().encode_compact()),
@@ -472,20 +570,7 @@ where
                 };
                 self.codec.encode_pair(&key, &value)
             }
-            // Returns the hash value directly to avoid double counting.
-            Node::Hash(hash) => return hash.get_hash().to_vec(),
-        };
-
-        // Nodes smaller than 32 bytes are stored inside their parent,
-        // Nodes equal to 32 bytes are returned directly
-        if data.len() < C::HASH_LENGTH {
-            data
-        } else {
-            let hash = self.codec.decode_hash(&data, false);
-            self.cache.insert(hash.clone(), data);
-
-            self.gen_keys.insert(hash.clone());
-            Vec::from(hash.as_ref())
+            Node::Hash(_hash) => unreachable!(),
         }
     }
 

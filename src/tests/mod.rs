@@ -616,6 +616,9 @@ mod trie_tests {
         );
     }
 
+    // proof test ref:
+    // - https://github.com/ethereum/go-ethereum/blob/master/trie/proof_test.go
+    // - https://github.com/ethereum/py-trie/blob/master/tests/test_proof.py
     #[test]
     fn test_proof_basic() {
         let mut memdb = MemoryDB::new(true);
@@ -702,4 +705,33 @@ mod trie_tests {
         }
     }
 
+    #[test]
+    fn test_proof_empty_trie() {
+        let mut memdb = MemoryDB::new(true);
+        let mut trie = PatriciaTrie::new(&mut memdb, RLPNodeCodec::default());
+        let root = trie.root().unwrap();
+        let proof = trie.get_proof(b"not-exist").unwrap();
+        // empty trie, proof should contain only one node, the empty root node
+        assert_eq!(proof, vec![vec![128u8]]);
+        let value = trie.verify_proof(root, b"not-exist", proof).unwrap();
+        assert_eq!(value, None);
+    }
+
+    #[test]
+    fn test_proof_one_element() {
+        let mut memdb = MemoryDB::new(true);
+        let mut trie = PatriciaTrie::new(&mut memdb, RLPNodeCodec::default());
+        trie.insert(b"k", b"v").unwrap();
+        let root = trie.root().unwrap();
+        let proof = trie.get_proof(b"k").unwrap();
+        assert_eq!(proof.len(), 1);
+        let value = trie.verify_proof(root, b"k", proof.clone()).unwrap();
+        assert_eq!(value, Some(b"v".to_vec()));
+
+        // remove key does not affect the verify process
+        trie.remove(b"k").unwrap();
+        let _root = trie.root().unwrap();
+        let value = trie.verify_proof(root, b"k", proof.clone()).unwrap();
+        assert_eq!(value, Some(b"v".to_vec()));
+    }
 }

@@ -200,8 +200,7 @@ where
 
     fn get_path_at(&self, n: &Node, partial: &Nibbles) -> TrieResult<Vec<Node>, C, D> {
         match n {
-            Node::Empty => Ok(vec![]),
-            Node::Leaf(_) => Ok(vec![n.clone()]),
+            Node::Empty | Node::Leaf(_) => Ok(vec![n.clone()]),
             Node::Branch(ref branch) => {
                 if partial.is_empty() || partial.at(0) == 16 {
                     Ok(vec![n.clone()])

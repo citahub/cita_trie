@@ -108,12 +108,11 @@ where
         proof: Vec<Vec<u8>>,
     ) -> TrieResult<Option<Vec<u8>>, C, D> {
         let mut memdb = MemoryDB::new(true);
-        for (i, node_encoded) in proof.iter().enumerate() {
-            if i > 0 && node_encoded.len() < C::HASH_LENGTH {
-                continue;
-            }
+        for node_encoded in proof.iter() {
             let hash = self.codec.decode_hash(node_encoded, false);
-            memdb.insert(hash.as_ref(), node_encoded).unwrap();
+            if hash == root_hash || node_encoded.len() >= C::HASH_LENGTH {
+                memdb.insert(hash.as_ref(), node_encoded).unwrap();
+            }
         }
         let trie = PatriciaTrie::from(&mut memdb, self.codec.clone(), &root_hash)
             .or(Err(TrieError::InvalidProof))?;

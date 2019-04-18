@@ -204,6 +204,12 @@ where
         }
     }
 
+    // Get nodes path along the key, only the nodes whose encode length is greater than
+    // hash length are added.
+    // For embedded nodes whose data are already contained in their parent node, we don't need to
+    // add them in the path.
+    // In the code below, we only add the nodes get by `get_node_from_hash`, because they contains
+    // all data stored in db, including nodes whose encoded data is less than hash length.
     fn get_path_at(&self, n: &Node, partial: &Nibbles) -> TrieResult<Vec<Node>, C, D> {
         match n {
             Node::Empty | Node::Leaf(_) => Ok(vec![]),

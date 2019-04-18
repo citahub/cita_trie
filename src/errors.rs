@@ -8,6 +8,7 @@ pub enum TrieError<C: NodeCodec, D: DB> {
     NodeCodec(C::Error),
     DB(D::Error),
     InvalidStateRoot,
+    InvalidProof,
 }
 
 impl<C, D> Error for TrieError<C, D>
@@ -20,6 +21,7 @@ where
             TrieError::NodeCodec(_) => "node codec error",
             TrieError::DB(_) => "db error",
             TrieError::InvalidStateRoot => "invalid state root",
+            TrieError::InvalidProof => "invalid proof",
         }
     }
 }
@@ -34,6 +36,7 @@ where
             TrieError::NodeCodec(ref err) => format!("node codec err: {:?}", err),
             TrieError::DB(ref err) => format!("db err: {:?}", err),
             TrieError::InvalidStateRoot => "invalid state root".to_string(),
+            TrieError::InvalidProof => "invalid proof".to_string(),
         };
         write!(f, "{}", printable)
     }

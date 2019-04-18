@@ -23,18 +23,35 @@ impl NodeCodec for RLPNodeCodec {
             Prototype::Data(0) => Ok(f(DataType::Empty)?),
             Prototype::List(2) => {
                 let key = r.at(0)?.data()?;
-                let value = r.at(1)?.data()?;
+                let rlp_data = r.at(1)?;
+                // TODO: if “is_data == true”, the value of the leaf node
+                // This is not a good implementation
+                // the details of MPT should not be exposed to the user.
+                let value = if rlp_data.is_data() {
+                    rlp_data.data()?
+                } else {
+                    rlp_data.as_raw()
+                };
 
                 Ok(f(DataType::Pair(&key, &value))?)
             }
             Prototype::List(17) => {
                 let mut values = vec![];
-                for i in 0..17 {
+                for i in 0..16 {
                     values.push(r.at(i)?.as_raw().to_vec());
+                }
+
+                // The last element is a value node.
+                let value_rlp = r.at(16)?;
+                if value_rlp.is_empty() {
+                    values.push(self.encode_empty());
+                } else {
+                    values.push(value_rlp.data()?.to_vec());
                 }
                 Ok(f(DataType::Values(&values))?)
             }
-            _ => Ok(f(DataType::Hash(r.data()?))?),
+            Prototype::Data(Self::HASH_LENGTH) => Ok(f(DataType::Hash(r.data()?))?),
+            _ => panic!("invalid data"),
         }
     }
 
@@ -638,7 +655,6 @@ mod trie_tests {
         let expected = vec![
             "e5831646f6a0db6ae1fda66890f6693f36560d36b4dca68b4d838f17016b151efe1d4c95c453",
             "f83b8080808080ca20887265696e6465657280a037efd11993cb04a54048c25320e9f29c50a432d28afdf01598b2978ce1ca3068808080808080808080",
-            "ca20887265696e64656572",
         ];
         assert_eq!(
             proof
@@ -656,8 +672,7 @@ mod trie_tests {
         let expected = vec![
             "e5831646f6a0db6ae1fda66890f6693f36560d36b4dca68b4d838f17016b151efe1d4c95c453",
             "f83b8080808080ca20887265696e6465657280a037efd11993cb04a54048c25320e9f29c50a432d28afdf01598b2978ce1ca3068808080808080808080",
-            "e5808080808080ce89376c6573776f7274688363617480808080808080808086857075707079",
-            "ce89376c6573776f72746883636174",
+            "e4808080808080ce89376c6573776f72746883636174808080808080808080857075707079",
         ];
         assert_eq!(
             proof
@@ -709,12 +724,9 @@ mod trie_tests {
     fn test_proof_empty_trie() {
         let mut memdb = MemoryDB::new(true);
         let mut trie = PatriciaTrie::new(&mut memdb, RLPNodeCodec::default());
-        let root = trie.root().unwrap();
+        trie.root().unwrap();
         let proof = trie.get_proof(b"not-exist").unwrap();
-        // empty trie, proof should contain only one node, the empty root node
-        assert_eq!(proof, vec![vec![128u8]]);
-        let value = trie.verify_proof(root, b"not-exist", proof).unwrap();
-        assert_eq!(value, None);
+        assert_eq!(proof.len(), 0);
     }
 
     #[test]

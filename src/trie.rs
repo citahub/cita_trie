@@ -97,8 +97,12 @@ where
     }
 
     fn get_proof(&self, key: &[u8]) -> TrieResult<Vec<Vec<u8>>, C, D> {
-        let path = self.get_path_at(&self.root, &Nibbles::from_raw(key, true))?;
-        Ok(path.iter().map(|n| self.encode_node_raw(n)).collect())
+        let mut path = self.get_path_at(&self.root, &Nibbles::from_raw(key, true))?;
+        match self.root {
+            Node::Empty => {}
+            _ => path.push(self.root.clone()),
+        }
+        Ok(path.iter().rev().map(|n| self.encode_node_raw(n)).collect())
     }
 
     fn verify_proof(
@@ -202,37 +206,35 @@ where
 
     fn get_path_at(&self, n: &Node, partial: &Nibbles) -> TrieResult<Vec<Node>, C, D> {
         match n {
-            Node::Empty | Node::Leaf(_) => Ok(vec![n.clone()]),
+            Node::Empty | Node::Leaf(_) => Ok(vec![]),
             Node::Branch(ref branch) => {
                 if partial.is_empty() || partial.at(0) == 16 {
-                    Ok(vec![n.clone()])
+                    Ok(vec![])
                 } else {
                     let index = partial.at(0) as usize;
                     let node = branch.at_children(index);
-                    let mut head = vec![n.clone()];
-                    let rest = self.get_path_at(node, &partial.slice(1, partial.len()))?;
-                    head.extend(rest);
-                    Ok(head)
+                    let res = self.get_path_at(node, &partial.slice(1, partial.len()))?;
+                    Ok(res)
                 }
             }
             Node::Extension(extension) => {
                 let prefix = extension.get_prefix();
                 let match_len = partial.common_prefix(prefix);
                 if match_len == prefix.len() {
-                    let rest = self.get_path_at(
+                    let res = self.get_path_at(
                         extension.get_node(),
                         &partial.slice(match_len, partial.len()),
                     )?;
-                    let mut head = vec![n.clone()];
-                    head.extend(rest);
-                    Ok(head)
+                    Ok(res)
                 } else {
-                    Ok(vec![n.clone()])
+                    Ok(vec![])
                 }
             }
             Node::Hash(hash) => {
                 let n = self.get_node_from_hash(hash.get_hash())?;
-                self.get_path_at(&n, partial)
+                let mut rest = self.get_path_at(&n, partial)?;
+                rest.push(n);
+                Ok(rest)
             }
         }
     }

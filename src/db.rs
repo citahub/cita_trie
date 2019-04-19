@@ -4,8 +4,7 @@ use std::sync::{Arc, RwLock};
 
 use crate::errors::MemDBError;
 
-/// NOTE: `Clone` must be ensured to be thread-safe.
-pub trait DB: Send + Sync + Clone {
+pub trait DB: Send + Sync {
     type Error: Error;
 
     fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, Self::Error>;
@@ -72,15 +71,6 @@ impl DB for MemoryDB {
     #[cfg(test)]
     fn is_empty(&self) -> Result<bool, Self::Error> {
         Ok(self.storage.try_read().unwrap().is_empty())
-    }
-}
-
-impl Clone for MemoryDB {
-    fn clone(&self) -> Self {
-        MemoryDB {
-            light: self.light,
-            storage: Arc::clone(&self.storage),
-        }
     }
 }
 

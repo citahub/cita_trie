@@ -19,21 +19,20 @@ The implementation is strongly inspired by [go-ethereum trie](https://github.com
 ### DB
 
 ```rust
-/// NOTE: `Clone` must be ensured to be thread-safe.
-pub trait DB: Send + Sync + Clone {
-    type Error: ::std::error::Error;
+pub trait DB: Send + Sync {
+    type Error: Error;
 
     fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, Self::Error>;
-    fn insert(&mut self, key: &[u8], value: &[u8]) -> Result<(), Self::Error>;
+    fn insert(&self, key: &[u8], value: &[u8]) -> Result<(), Self::Error>;
     fn contains(&self, key: &[u8]) -> Result<bool, Self::Error>;
-    fn remove(&mut self, key: &[u8]) -> Result<(), Self::Error>;
+    fn remove(&self, key: &[u8]) -> Result<(), Self::Error>;
 }
 ```
 
 ### Decoder
 
 ```rust
-pub trait NodeCodec: Sized {
+pub trait NodeCodec: Sized + Clone {
     type Error: ::std::error::Error;
 
     const HASH_LENGTH: usize;
@@ -66,17 +65,18 @@ pub trait NodeCodec: Sized {
 ### Use the RLP decoder
 
 ```rust
+use std::sync::Arc;
 use cita_trie::codec::RLPNodeCodec;
 use cita_trie::db::MemoryDB;
 use cita_trie::trie::{PatriciaTrie, Trie};
 
 fn main() {
-    let mut memdb = MemoryDB::new(true);
+    let memdb = Arc::new(MemoryDB::new(true));
     let key = "test-key".as_bytes();
     let value = "test-value".as_bytes();
 
     let root = {
-        let mut trie = PatriciaTrie::new(&mut memdb, RLPNodeCodec::default());
+        let mut trie = PatriciaTrie::new(Arc::clone(&memdb), RLPNodeCodec::default());
         trie.insert(key, value).unwrap();
 
         let v = trie.get(key).unwrap();
@@ -84,7 +84,7 @@ fn main() {
         trie.root().unwrap()
     };
 
-    let mut trie = PatriciaTrie::from(&mut memdb, RLPNodeCodec::default(), &root).unwrap();
+    let mut trie = PatriciaTrie::from(Arc::clone(memdb), RLPNodeCodec::default(), &root).unwrap();
     let exists = trie.contains(key).unwrap();
     assert_eq!(exists, true);
     let removed = trie.remove(key).unwrap();

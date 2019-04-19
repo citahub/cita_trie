@@ -4,14 +4,13 @@ use std::sync::{Arc, RwLock};
 
 use crate::errors::MemDBError;
 
-/// NOTE: `Clone` must be ensured to be thread-safe.
-pub trait DB: Send + Sync + Clone {
+pub trait DB: Send + Sync {
     type Error: Error;
 
     fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, Self::Error>;
-    fn insert(&mut self, key: &[u8], value: &[u8]) -> Result<(), Self::Error>;
+    fn insert(&self, key: &[u8], value: &[u8]) -> Result<(), Self::Error>;
     fn contains(&self, key: &[u8]) -> Result<bool, Self::Error>;
-    fn remove(&mut self, key: &[u8]) -> Result<(), Self::Error>;
+    fn remove(&self, key: &[u8]) -> Result<(), Self::Error>;
 
     #[cfg(test)]
     fn len(&self) -> Result<usize, Self::Error>;
@@ -46,7 +45,7 @@ impl DB for MemoryDB {
         }
     }
 
-    fn insert(&mut self, key: &[u8], value: &[u8]) -> Result<(), Self::Error> {
+    fn insert(&self, key: &[u8], value: &[u8]) -> Result<(), Self::Error> {
         self.storage
             .write()
             .unwrap()
@@ -58,7 +57,7 @@ impl DB for MemoryDB {
         Ok(self.storage.read().unwrap().contains_key(key))
     }
 
-    fn remove(&mut self, key: &[u8]) -> Result<(), Self::Error> {
+    fn remove(&self, key: &[u8]) -> Result<(), Self::Error> {
         if self.light {
             self.storage.write().unwrap().remove(key);
         }
@@ -75,22 +74,13 @@ impl DB for MemoryDB {
     }
 }
 
-impl Clone for MemoryDB {
-    fn clone(&self) -> Self {
-        MemoryDB {
-            light: self.light,
-            storage: Arc::clone(&self.storage),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_memdb_get() {
-        let mut memdb = MemoryDB::new(true);
+        let memdb = MemoryDB::new(true);
         memdb.insert(b"test-key", b"test-value").unwrap();
         let v = memdb.get(b"test-key").unwrap().unwrap();
 
@@ -99,7 +89,7 @@ mod tests {
 
     #[test]
     fn test_memdb_contains() {
-        let mut memdb = MemoryDB::new(true);
+        let memdb = MemoryDB::new(true);
         memdb.insert(b"test", b"test").unwrap();
 
         let contains = memdb.contains(b"test").unwrap();
@@ -108,7 +98,7 @@ mod tests {
 
     #[test]
     fn test_memdb_remove() {
-        let mut memdb = MemoryDB::new(true);
+        let memdb = MemoryDB::new(true);
         memdb.insert(b"test", b"test").unwrap();
 
         memdb.remove(b"test").unwrap();

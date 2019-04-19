@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use crate::codec::{DataType, NodeCodec};
 use crate::db::{MemoryDB, DB};
@@ -45,13 +46,13 @@ pub trait Trie<C: NodeCodec, D: DB> {
 }
 
 #[derive(Debug)]
-pub struct PatriciaTrie<'db, C, D>
+pub struct PatriciaTrie<C, D>
 where
     C: NodeCodec,
     D: DB,
 {
     root: Node,
-    db: &'db mut D,
+    db: Arc<D>,
     codec: C,
 
     root_hash: C::Hash,
@@ -61,7 +62,7 @@ where
     gen_keys: RefCell<HashSet<C::Hash>>,
 }
 
-impl<'db, C, D> Trie<C, D> for PatriciaTrie<'db, C, D>
+impl<C, D> Trie<C, D> for PatriciaTrie<C, D>
 where
     C: NodeCodec,
     D: DB,
@@ -111,26 +112,26 @@ where
         key: &[u8],
         proof: Vec<Vec<u8>>,
     ) -> TrieResult<Option<Vec<u8>>, C, D> {
-        let mut memdb = MemoryDB::new(true);
+        let memdb = Arc::new(MemoryDB::new(true));
         for node_encoded in proof.iter() {
             let hash = self.codec.decode_hash(node_encoded, false);
             if hash == root_hash || node_encoded.len() >= C::HASH_LENGTH {
                 memdb.insert(hash.as_ref(), node_encoded).unwrap();
             }
         }
-        let trie = PatriciaTrie::from(&mut memdb, self.codec.clone(), &root_hash)
+        let trie = PatriciaTrie::from(memdb, self.codec.clone(), &root_hash)
             .or(Err(TrieError::InvalidProof))?;
         let value = trie.get(key).or(Err(TrieError::InvalidProof))?;
         Ok(value)
     }
 }
 
-impl<'db, C, D> PatriciaTrie<'db, C, D>
+impl<C, D> PatriciaTrie<C, D>
 where
     C: NodeCodec,
     D: DB,
 {
-    pub fn new(db: &'db mut D, codec: C) -> Self {
+    pub fn new(db: Arc<D>, codec: C) -> Self {
         let empty_root_hash = codec.decode_hash(&codec.encode_empty(), false);
 
         PatriciaTrie {
@@ -145,7 +146,7 @@ where
         }
     }
 
-    pub fn from(db: &'db mut D, codec: C, root: &C::Hash) -> TrieResult<Self, C, D> {
+    pub fn from(db: Arc<D>, codec: C, root: &C::Hash) -> TrieResult<Self, C, D> {
         match db.get(root.as_ref()).map_err(TrieError::DB)? {
             Some(data) => {
                 let mut trie = PatriciaTrie {
@@ -501,7 +502,7 @@ where
                 if nibble.is_leaf() {
                     Ok(LeafNode::new(nibble, value.to_vec()).into_node())
                 } else {
-                    let n = self.try_decode_hash_node(value)?;;
+                    let n = self.try_decode_hash_node(value)?;
                     Ok(ExtensionNode::new(nibble, n).into_node())
                 }
             }
@@ -605,6 +606,7 @@ mod tests {
     use rand::distributions::Alphanumeric;
     use rand::seq::SliceRandom;
     use rand::{thread_rng, Rng};
+    use std::sync::Arc;
 
     use ethereum_types;
 
@@ -614,15 +616,15 @@ mod tests {
 
     #[test]
     fn test_trie_insert() {
-        let mut memdb = MemoryDB::new(true);
-        let mut trie = PatriciaTrie::new(&mut memdb, RLPNodeCodec::default());
+        let memdb = Arc::new(MemoryDB::new(true));
+        let mut trie = PatriciaTrie::new(memdb, RLPNodeCodec::default());
         trie.insert(b"test", b"test").unwrap();
     }
 
     #[test]
     fn test_trie_get() {
-        let mut memdb = MemoryDB::new(true);
-        let mut trie = PatriciaTrie::new(&mut memdb, RLPNodeCodec::default());
+        let memdb = Arc::new(MemoryDB::new(true));
+        let mut trie = PatriciaTrie::new(memdb, RLPNodeCodec::default());
         trie.insert(b"test", b"test").unwrap();
         let v = trie.get(b"test").unwrap();
 
@@ -631,8 +633,8 @@ mod tests {
 
     #[test]
     fn test_trie_random_insert() {
-        let mut memdb = MemoryDB::new(true);
-        let mut trie = PatriciaTrie::new(&mut memdb, RLPNodeCodec::default());
+        let memdb = Arc::new(MemoryDB::new(true));
+        let mut trie = PatriciaTrie::new(memdb, RLPNodeCodec::default());
 
         for _ in 0..1000 {
             let rand_str: String = thread_rng().sample_iter(&Alphanumeric).take(30).collect();
@@ -646,8 +648,8 @@ mod tests {
 
     #[test]
     fn test_trie_contains() {
-        let mut memdb = MemoryDB::new(true);
-        let mut trie = PatriciaTrie::new(&mut memdb, RLPNodeCodec::default());
+        let memdb = Arc::new(MemoryDB::new(true));
+        let mut trie = PatriciaTrie::new(memdb, RLPNodeCodec::default());
         trie.insert(b"test", b"test").unwrap();
         assert_eq!(true, trie.contains(b"test").unwrap());
         assert_eq!(false, trie.contains(b"test2").unwrap());
@@ -655,8 +657,8 @@ mod tests {
 
     #[test]
     fn test_trie_remove() {
-        let mut memdb = MemoryDB::new(true);
-        let mut trie = PatriciaTrie::new(&mut memdb, RLPNodeCodec::default());
+        let memdb = Arc::new(MemoryDB::new(true));
+        let mut trie = PatriciaTrie::new(memdb, RLPNodeCodec::default());
         trie.insert(b"test", b"test").unwrap();
         let removed = trie.remove(b"test").unwrap();
         assert_eq!(true, removed)
@@ -664,8 +666,8 @@ mod tests {
 
     #[test]
     fn test_trie_random_remove() {
-        let mut memdb = MemoryDB::new(true);
-        let mut trie = PatriciaTrie::new(&mut memdb, RLPNodeCodec::default());
+        let memdb = Arc::new(MemoryDB::new(true));
+        let mut trie = PatriciaTrie::new(memdb, RLPNodeCodec::default());
 
         for _ in 0..1000 {
             let rand_str: String = thread_rng().sample_iter(&Alphanumeric).take(30).collect();
@@ -679,8 +681,8 @@ mod tests {
 
     #[test]
     fn test_trie_empty_commit() {
-        let mut memdb = MemoryDB::new(true);
-        let mut trie = PatriciaTrie::new(&mut memdb, RLPNodeCodec::default());
+        let memdb = Arc::new(MemoryDB::new(true));
+        let mut trie = PatriciaTrie::new(memdb, RLPNodeCodec::default());
 
         let codec = RLPNodeCodec::default();
         let empty_node_data = codec.decode_hash(&codec.encode_empty(), false);
@@ -691,8 +693,8 @@ mod tests {
 
     #[test]
     fn test_trie_commit() {
-        let mut memdb = MemoryDB::new(true);
-        let mut trie = PatriciaTrie::new(&mut memdb, RLPNodeCodec::default());
+        let memdb = Arc::new(MemoryDB::new(true));
+        let mut trie = PatriciaTrie::new(memdb, RLPNodeCodec::default());
         trie.insert(b"test", b"test").unwrap();
         let root = trie.commit().unwrap();
 
@@ -703,9 +705,9 @@ mod tests {
 
     #[test]
     fn test_trie_from_root() {
-        let mut memdb = MemoryDB::new(true);
+        let memdb = Arc::new(MemoryDB::new(true));
         let root = {
-            let mut trie = PatriciaTrie::new(&mut memdb, RLPNodeCodec::default());
+            let mut trie = PatriciaTrie::new(Arc::clone(&memdb), RLPNodeCodec::default());
             trie.insert(b"test", b"test").unwrap();
             trie.insert(b"test1", b"test").unwrap();
             trie.insert(b"test2", b"test").unwrap();
@@ -715,7 +717,8 @@ mod tests {
             trie.root().unwrap()
         };
 
-        let mut trie = PatriciaTrie::from(&mut memdb, RLPNodeCodec::default(), &root).unwrap();
+        let mut trie =
+            PatriciaTrie::from(Arc::clone(&memdb), RLPNodeCodec::default(), &root).unwrap();
         let v1 = trie.get(b"test33").unwrap();
         assert_eq!(Some(b"test".to_vec()), v1);
         let v2 = trie.get(b"test44").unwrap();
@@ -726,9 +729,9 @@ mod tests {
 
     #[test]
     fn test_trie_from_root_and_insert() {
-        let mut memdb = MemoryDB::new(true);
+        let memdb = Arc::new(MemoryDB::new(true));
         let root = {
-            let mut trie = PatriciaTrie::new(&mut memdb, RLPNodeCodec::default());
+            let mut trie = PatriciaTrie::new(Arc::clone(&memdb), RLPNodeCodec::default());
             trie.insert(b"test", b"test").unwrap();
             trie.insert(b"test1", b"test").unwrap();
             trie.insert(b"test2", b"test").unwrap();
@@ -738,7 +741,8 @@ mod tests {
             trie.commit().unwrap()
         };
 
-        let mut trie = PatriciaTrie::from(&mut memdb, RLPNodeCodec::default(), &root).unwrap();
+        let mut trie =
+            PatriciaTrie::from(Arc::clone(&memdb), RLPNodeCodec::default(), &root).unwrap();
         trie.insert(b"test55", b"test55").unwrap();
         trie.commit().unwrap();
         let v = trie.get(b"test55").unwrap();
@@ -747,9 +751,9 @@ mod tests {
 
     #[test]
     fn test_trie_from_root_and_delete() {
-        let mut memdb = MemoryDB::new(true);
+        let memdb = Arc::new(MemoryDB::new(true));
         let root = {
-            let mut trie = PatriciaTrie::new(&mut memdb, RLPNodeCodec::default());
+            let mut trie = PatriciaTrie::new(Arc::clone(&memdb), RLPNodeCodec::default());
             trie.insert(b"test", b"test").unwrap();
             trie.insert(b"test1", b"test").unwrap();
             trie.insert(b"test2", b"test").unwrap();
@@ -759,7 +763,8 @@ mod tests {
             trie.commit().unwrap()
         };
 
-        let mut trie = PatriciaTrie::from(&mut memdb, RLPNodeCodec::default(), &root).unwrap();
+        let mut trie =
+            PatriciaTrie::from(Arc::clone(&memdb), RLPNodeCodec::default(), &root).unwrap();
         let removed = trie.remove(b"test44").unwrap();
         assert_eq!(true, removed);
         let removed = trie.remove(b"test33").unwrap();
@@ -775,15 +780,15 @@ mod tests {
         let v: ethereum_types::H256 = 0x1234.into();
 
         let root1 = {
-            let mut db = MemoryDB::new(true);
-            let mut trie = PatriciaTrie::new(&mut db, RLPNodeCodec::default());
+            let db = Arc::new(MemoryDB::new(true));
+            let mut trie = PatriciaTrie::new(db, RLPNodeCodec::default());
             trie.insert(k0.as_ref(), v.as_bytes()).unwrap();
             trie.root().unwrap()
         };
 
         let root2 = {
-            let mut db = MemoryDB::new(true);
-            let mut trie = PatriciaTrie::new(&mut db, RLPNodeCodec::default());
+            let db = Arc::new(MemoryDB::new(true));
+            let mut trie = PatriciaTrie::new(db, RLPNodeCodec::default());
             trie.insert(k0.as_ref(), v.as_bytes()).unwrap();
             trie.insert(k1.as_ref(), v.as_bytes()).unwrap();
             trie.root().unwrap();
@@ -792,13 +797,14 @@ mod tests {
         };
 
         let root3 = {
-            let mut db = MemoryDB::new(true);
-            let mut t1 = PatriciaTrie::new(&mut db, RLPNodeCodec::default());
+            let db = Arc::new(MemoryDB::new(true));
+            let mut t1 = PatriciaTrie::new(Arc::clone(&db), RLPNodeCodec::default());
             t1.insert(k0.as_ref(), v.as_bytes()).unwrap();
             t1.insert(k1.as_ref(), v.as_bytes()).unwrap();
             t1.root().unwrap();
             let root = t1.root().unwrap();
-            let mut t2 = PatriciaTrie::from(&mut db, RLPNodeCodec::default(), &root).unwrap();
+            let mut t2 =
+                PatriciaTrie::from(Arc::clone(&db), RLPNodeCodec::default(), &root).unwrap();
             t2.remove(k1.as_ref()).unwrap();
             t2.root().unwrap()
         };
@@ -809,8 +815,8 @@ mod tests {
 
     #[test]
     fn test_delete_stale_keys_with_random_insert_and_delete() {
-        let mut memdb = MemoryDB::new(true);
-        let mut trie = PatriciaTrie::new(&mut memdb, RLPNodeCodec::default());
+        let memdb = Arc::new(MemoryDB::new(true));
+        let mut trie = PatriciaTrie::new(memdb, RLPNodeCodec::default());
 
         let mut rng = rand::thread_rng();
         let mut keys = vec![];
@@ -838,8 +844,8 @@ mod tests {
 
     #[test]
     fn insert_full_branch() {
-        let mut memdb = MemoryDB::new(true);
-        let mut trie = PatriciaTrie::new(&mut memdb, RLPNodeCodec::default());
+        let memdb = Arc::new(MemoryDB::new(true));
+        let mut trie = PatriciaTrie::new(memdb, RLPNodeCodec::default());
 
         trie.insert(b"test", b"test").unwrap();
         trie.insert(b"test1", b"test").unwrap();

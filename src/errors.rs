@@ -48,7 +48,13 @@ where
     D: DB,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self)
+        let printable = match *self {
+            TrieError::NodeCodec(ref err) => format!("node codec err: {:?}", err),
+            TrieError::DB(ref err) => format!("db err: {:?}", err),
+            TrieError::InvalidStateRoot => "invalid state root".to_string(),
+            TrieError::InvalidProof => "invalid proof".to_string(),
+        };
+        write!(f, "{}", printable)
     }
 }
 

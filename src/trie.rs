@@ -473,16 +473,25 @@ where
             self.codec.decode_hash(&encoded, true)
         };
 
+        let mut keys = Vec::with_capacity(self.cache.borrow().len());
+        let mut values = Vec::with_capacity(self.cache.borrow().len());
         for (k, v) in self.cache.borrow_mut().drain() {
-            self.db.insert(k.as_ref(), &v).map_err(TrieError::DB)?;
+            keys.push(k.as_ref().to_vec());
+            values.push(v);
         }
 
-        let removed_keys: Vec<&C::Hash> = self
+        self.db
+            .insert_batch(&keys, &values)
+            .map_err(TrieError::DB)?;
+
+        let removed_keys: Vec<Vec<u8>> = self
             .passing_keys
             .iter()
             .filter(|h| !self.gen_keys.borrow().contains(&h))
+            .map(|h| h.as_ref().to_vec())
             .collect();
 
+        self.db.remove_batch(&removed_keys).map_err(TrieError::DB)?;
         for key in removed_keys {
             self.db.remove(key.as_ref()).map_err(TrieError::DB)?;
         }

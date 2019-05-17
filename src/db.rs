@@ -12,6 +12,20 @@ pub trait DB: Send + Sync {
     fn contains(&self, key: &[u8]) -> Result<bool, Self::Error>;
     fn remove(&self, key: &[u8]) -> Result<(), Self::Error>;
 
+    fn insert_batch(&self, keys: &[Vec<u8>], values: &[Vec<u8>]) -> Result<(), Self::Error> {
+        for i in 0..keys.len() {
+            self.insert(&keys[i], &values[i])?;
+        }
+        Ok(())
+    }
+
+    fn remove_batch(&self, keys: &[Vec<u8>]) -> Result<(), Self::Error> {
+        for key in keys {
+            self.remove(&key)?;
+        }
+        Ok(())
+    }
+
     #[cfg(test)]
     fn len(&self) -> Result<usize, Self::Error>;
     #[cfg(test)]

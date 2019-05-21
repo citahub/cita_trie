@@ -86,7 +86,9 @@ impl DB for MemoryDB {
     }
 
     fn remove(&self, key: &[u8]) -> Result<(), Self::Error> {
-        self.storage.write().remove(key);
+        if self.light {
+            self.storage.write().remove(key);
+        }
         Ok(())
     }
 

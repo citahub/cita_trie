@@ -116,7 +116,9 @@ where
         for node_encoded in proof.iter() {
             let hash = self.codec.decode_hash(node_encoded, false);
             if hash == root_hash || node_encoded.len() >= C::HASH_LENGTH {
-                memdb.insert(hash.as_ref(), node_encoded).unwrap();
+                memdb
+                    .insert(hash.as_ref().to_vec(), node_encoded.to_vec())
+                    .unwrap();
             }
         }
         let trie = PatriciaTrie::from(memdb, self.codec.clone(), &root_hash)
@@ -480,9 +482,7 @@ where
             values.push(v);
         }
 
-        self.db
-            .insert_batch(&keys, &values)
-            .map_err(TrieError::DB)?;
+        self.db.insert_batch(keys, values).map_err(TrieError::DB)?;
 
         let removed_keys: Vec<Vec<u8>> = self
             .passing_keys
@@ -492,9 +492,6 @@ where
             .collect();
 
         self.db.remove_batch(&removed_keys).map_err(TrieError::DB)?;
-        for key in removed_keys {
-            self.db.remove(key.as_ref()).map_err(TrieError::DB)?;
-        }
 
         self.root_hash = root_hash.clone();
         self.gen_keys.borrow_mut().clear();

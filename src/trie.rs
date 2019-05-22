@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use std::mem;
 
 use crate::codec::{DataType, NodeCodec};
 use crate::db::{MemoryDB, DB};
@@ -82,7 +83,8 @@ where
             self.remove(key)?;
             return Ok(());
         }
-        let root = self.root.clone();
+        let mut root = Node::Empty;
+        mem::swap(&mut self.root, &mut root);
         self.root = self.insert_at(root, Nibbles::from_raw(key, true), value.to_vec())?;
         Ok(())
     }

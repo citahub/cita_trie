@@ -1,25 +1,29 @@
 [package]
 name = "cita_trie"
-version = "0.4.1"
+version = "1.0.1"
 authors = ["yejiayu <yejiayu.fe@gmail.com>"]
 description = "Modified Patricia Tree (aka Trie)."
 license = "Apache-2.0"
 edition = "2018"
+readme = "README.md"
+keywords = ["patricia", "mpt", "evm", "trie", "ethereum"]
+repository = "https://github.com/cryptape/cita-trie"
+homepage = "https://github.com/cryptape/cita-trie"
+documentation = "https://docs.rs/cita_trie"
 
 [dependencies]
-failure = "0.1.5"
-bytes = "0.4.11"
-sha3 = "0.8.0"
+parking_lot = "0.8"
 rlp = "0.3.0"
 tiny-keccak = "1.4.2"
-parking_lot = "0.8"
+hashbrown = "0.3.0"
 
 [dev-dependencies]
 rand = "0.6.3"
 hex = "0.3.2"
 criterion = "0.2.10"
 ethereum-types = "0.5.2"
+uuid = { version = "0.7", features = ["serde", "v4"] }
 
 [[bench]]
-name = "insert_benchmark"
+name = "trie"
 harness = false

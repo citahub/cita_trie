@@ -1,31 +1,35 @@
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::marker::PhantomData;
+use std::rc::Rc;
 use std::sync::Arc;
 
-use crate::codec::{DataType, NodeCodec};
+use hashbrown::{HashMap, HashSet};
+use rlp::{Prototype, Rlp, RlpStream};
+
 use crate::db::{MemoryDB, DB};
 use crate::errors::TrieError;
 use crate::nibbles::Nibbles;
-use crate::node::{BranchNode, ExtensionNode, HashNode, LeafNode, Node};
+use crate::node::{empty_children, BranchNode, Node};
+use crate::Hasher;
 
-pub type TrieResult<T, C, D> = Result<T, TrieError<C, D>>;
+pub type TrieResult<T> = Result<T, TrieError>;
 
-pub trait Trie<C: NodeCodec, D: DB> {
+pub trait Trie<D: DB, H: Hasher> {
     /// Returns the value for key stored in the trie.
-    fn get(&self, key: &[u8]) -> TrieResult<Option<Vec<u8>>, C, D>;
+    fn get(&self, key: &[u8]) -> TrieResult<Option<Vec<u8>>>;
 
     /// Checks that the key is present in the trie
-    fn contains(&self, key: &[u8]) -> TrieResult<bool, C, D>;
+    fn contains(&self, key: &[u8]) -> TrieResult<bool>;
 
     /// Inserts value into trie and modifies it if it exists
-    fn insert(&mut self, key: &[u8], value: &[u8]) -> TrieResult<(), C, D>;
+    fn insert(&mut self, key: Vec<u8>, value: Vec<u8>) -> TrieResult<()>;
 
     /// Removes any existing value for key from the trie.
-    fn remove(&mut self, key: &[u8]) -> TrieResult<bool, C, D>;
+    fn remove(&mut self, key: &[u8]) -> TrieResult<bool>;
 
     /// Saves all the nodes in the db, clears the cache data, recalculates the root.
     /// Returns the root hash of the trie.
-    fn root(&mut self) -> TrieResult<C::Hash, C, D>;
+    fn root(&mut self) -> TrieResult<Vec<u8>>;
 
     /// Prove constructs a merkle proof for key. The result contains all encoded nodes
     /// on the path to the value at key. The value itself is also included in the last
@@ -34,52 +38,100 @@ pub trait Trie<C: NodeCodec, D: DB> {
     /// If the trie does not contain a value for key, the returned proof contains all
     /// nodes of the longest existing prefix of the key (at least the root node), ending
     /// with the node that proves the absence of the key.
-    fn get_proof(&self, key: &[u8]) -> TrieResult<Vec<Vec<u8>>, C, D>;
+    fn get_proof(&self, key: &[u8]) -> TrieResult<Vec<Vec<u8>>>;
 
     /// return value if key exists, None if key not exist, Error if proof is wrong
     fn verify_proof(
         &self,
-        root_hash: C::Hash,
+        root_hash: Vec<u8>,
         key: &[u8],
         proof: Vec<Vec<u8>>,
-    ) -> TrieResult<Option<Vec<u8>>, C, D>;
+    ) -> TrieResult<Option<Vec<u8>>>;
 }
 
 #[derive(Debug)]
-pub struct PatriciaTrie<C, D>
+pub struct PatriciaTrie<D, H>
 where
-    C: NodeCodec,
     D: DB,
+    H: Hasher,
 {
     root: Node,
+    root_hash: Vec<u8>,
+
     db: Arc<D>,
-    codec: C,
 
-    root_hash: C::Hash,
-    cache: RefCell<HashMap<C::Hash, Vec<u8>>>,
+    cache: RefCell<HashMap<Vec<u8>, Vec<u8>>>,
+    passing_keys: RefCell<HashSet<Vec<u8>>>,
+    gen_keys: RefCell<HashSet<Vec<u8>>>,
 
-    passing_keys: HashSet<C::Hash>,
-    gen_keys: RefCell<HashSet<C::Hash>>,
+    _phantom_hasher: PhantomData<H>,
 }
 
-impl<C, D> Trie<C, D> for PatriciaTrie<C, D>
+impl<D, H> PatriciaTrie<D, H>
 where
-    C: NodeCodec,
     D: DB,
+    H: Hasher,
 {
-    fn get(&self, key: &[u8]) -> TrieResult<Option<Vec<u8>>, C, D> {
-        self.get_at(&self.root, &Nibbles::from_raw(key, true))
+    pub fn new(db: Arc<D>) -> Self {
+        Self {
+            root: Node::Empty,
+            root_hash: H::digest(&rlp::NULL_RLP.to_vec()),
+
+            cache: RefCell::new(HashMap::new()),
+            passing_keys: RefCell::new(HashSet::new()),
+            gen_keys: RefCell::new(HashSet::new()),
+
+            db,
+
+            _phantom_hasher: PhantomData::<H>,
+        }
     }
 
-    fn contains(&self, key: &[u8]) -> TrieResult<bool, C, D> {
+    pub fn from(db: Arc<D>, root: &[u8]) -> TrieResult<Self> {
+        match db.get(&root).map_err(|e| TrieError::DB(e.to_string()))? {
+            Some(data) => {
+                let mut trie = Self {
+                    root: Node::Empty,
+                    root_hash: root.to_vec(),
+
+                    cache: RefCell::new(HashMap::new()),
+                    passing_keys: RefCell::new(HashSet::new()),
+                    gen_keys: RefCell::new(HashSet::new()),
+
+                    db,
+
+                    _phantom_hasher: PhantomData::<H>,
+                };
+
+                trie.root = trie.decode_node(&data)?;
+                Ok(trie)
+            }
+            None => Err(TrieError::InvalidStateRoot),
+        }
+    }
+}
+
+impl<D, H> Trie<D, H> for PatriciaTrie<D, H>
+where
+    D: DB,
+    H: Hasher,
+{
+    /// Returns the value for key stored in the trie.
+    fn get(&self, key: &[u8]) -> TrieResult<Option<Vec<u8>>> {
+        self.get_at(self.root.clone(), &Nibbles::from_raw(key.to_vec(), true))
+    }
+
+    /// Checks that the key is present in the trie
+    fn contains(&self, key: &[u8]) -> TrieResult<bool> {
         Ok(self
-            .get_at(&self.root, &Nibbles::from_raw(key, true))?
+            .get_at(self.root.clone(), &Nibbles::from_raw(key.to_vec(), true))?
             .map_or(false, |_| true))
     }
 
-    fn insert(&mut self, key: &[u8], value: &[u8]) -> TrieResult<(), C, D> {
+    /// Inserts value into trie and modifies it if it exists
+    fn insert(&mut self, key: Vec<u8>, value: Vec<u8>) -> TrieResult<()> {
         if value.is_empty() {
-            self.remove(key)?;
+            self.remove(&key)?;
             return Ok(());
         }
         let root = self.root.clone();
@@ -87,123 +139,329 @@ where
         Ok(())
     }
 
-    fn remove(&mut self, key: &[u8]) -> TrieResult<bool, C, D> {
-        let (n, removed) = self.delete_at(self.root.clone(), &Nibbles::from_raw(key, true))?;
+    /// Removes any existing value for key from the trie.
+    fn remove(&mut self, key: &[u8]) -> TrieResult<bool> {
+        let (n, removed) =
+            self.delete_at(self.root.clone(), &Nibbles::from_raw(key.to_vec(), true))?;
         self.root = n;
         Ok(removed)
     }
 
-    fn root(&mut self) -> TrieResult<C::Hash, C, D> {
+    /// Saves all the nodes in the db, clears the cache data, recalculates the root.
+    /// Returns the root hash of the trie.
+    fn root(&mut self) -> TrieResult<Vec<u8>> {
         self.commit()
     }
 
-    fn get_proof(&self, key: &[u8]) -> TrieResult<Vec<Vec<u8>>, C, D> {
-        let mut path = self.get_path_at(&self.root, &Nibbles::from_raw(key, true))?;
+    /// Prove constructs a merkle proof for key. The result contains all encoded nodes
+    /// on the path to the value at key. The value itself is also included in the last
+    /// node and can be retrieved by verifying the proof.
+    ///
+    /// If the trie does not contain a value for key, the returned proof contains all
+    /// nodes of the longest existing prefix of the key (at least the root node), ending
+    /// with the node that proves the absence of the key.
+    fn get_proof(&self, key: &[u8]) -> TrieResult<Vec<Vec<u8>>> {
+        let mut path =
+            self.get_path_at(self.root.clone(), &Nibbles::from_raw(key.to_vec(), true))?;
         match self.root {
             Node::Empty => {}
             _ => path.push(self.root.clone()),
         }
-        Ok(path.iter().rev().map(|n| self.encode_node_raw(n)).collect())
+        Ok(path.into_iter().rev().map(|n| self.encode_raw(n)).collect())
     }
 
+    /// return value if key exists, None if key not exist, Error if proof is wrong
     fn verify_proof(
         &self,
-        root_hash: C::Hash,
+        root_hash: Vec<u8>,
         key: &[u8],
         proof: Vec<Vec<u8>>,
-    ) -> TrieResult<Option<Vec<u8>>, C, D> {
+    ) -> TrieResult<Option<Vec<u8>>> {
         let memdb = Arc::new(MemoryDB::new(true));
-        for node_encoded in proof.iter() {
-            let hash = self.codec.decode_hash(node_encoded, false);
-            if hash == root_hash || node_encoded.len() >= C::HASH_LENGTH {
-                memdb
-                    .insert(hash.as_ref().to_vec(), node_encoded.to_vec())
-                    .unwrap();
+        for node_encoded in proof.into_iter() {
+            let hash = H::digest(&node_encoded);
+
+            if root_hash.eq(&hash) || node_encoded.len() >= H::LENGTH {
+                memdb.insert(hash, node_encoded).unwrap();
             }
         }
-        let trie = PatriciaTrie::from(memdb, self.codec.clone(), &root_hash)
-            .or(Err(TrieError::InvalidProof))?;
-        let value = trie.get(key).or(Err(TrieError::InvalidProof))?;
-        Ok(value)
+        let trie =
+            PatriciaTrie::<_, H>::from(memdb, &root_hash).or(Err(TrieError::InvalidProof))?;
+        trie.get(key).or(Err(TrieError::InvalidProof))
     }
 }
 
-impl<C, D> PatriciaTrie<C, D>
+impl<D, H> PatriciaTrie<D, H>
 where
-    C: NodeCodec,
     D: DB,
+    H: Hasher,
 {
-    pub fn new(db: Arc<D>, codec: C) -> Self {
-        let empty_root_hash = codec.decode_hash(&codec.encode_empty(), false);
-
-        PatriciaTrie {
-            root: Node::Empty,
-            db,
-            codec,
-
-            root_hash: empty_root_hash.clone(),
-            cache: RefCell::new(HashMap::new()),
-            passing_keys: HashSet::new(),
-            gen_keys: RefCell::new(HashSet::new()),
-        }
-    }
-
-    pub fn from(db: Arc<D>, codec: C, root: &C::Hash) -> TrieResult<Self, C, D> {
-        match db.get(root.as_ref()).map_err(TrieError::DB)? {
-            Some(data) => {
-                let mut trie = PatriciaTrie {
-                    root: Node::Empty,
-                    db,
-                    codec,
-
-                    root_hash: root.clone(),
-                    cache: RefCell::new(HashMap::new()),
-                    passing_keys: HashSet::new(),
-                    gen_keys: RefCell::new(HashSet::new()),
-                };
-
-                trie.root = trie.decode_node(&data).map_err(TrieError::NodeCodec)?;
-                Ok(trie)
-            }
-            None => Err(TrieError::InvalidStateRoot),
-        }
-    }
-
-    fn get_at<'a>(&self, n: &'a Node, partial: &Nibbles) -> TrieResult<Option<Vec<u8>>, C, D> {
+    fn get_at(&self, n: Node, partial: &Nibbles) -> TrieResult<Option<Vec<u8>>> {
         match n {
             Node::Empty => Ok(None),
-            Node::Leaf(ref leaf) => {
-                if partial == leaf.get_key() {
-                    Ok(Some(leaf.get_value().to_vec()))
+            Node::Leaf(leaf) => {
+                let borrow_leaf = leaf.borrow();
+
+                if &borrow_leaf.key == partial {
+                    Ok(Some(borrow_leaf.value.clone()))
                 } else {
                     Ok(None)
                 }
             }
-            Node::Branch(ref branch) => {
+            Node::Branch(branch) => {
+                let borrow_branch = branch.borrow();
+
                 if partial.is_empty() || partial.at(0) == 16 {
-                    Ok(branch.get_value().and_then(|v| Some(v.to_vec())))
+                    Ok(borrow_branch.value.clone())
                 } else {
-                    let index = partial.at(0) as usize;
-                    let node = branch.at_children(index);
-                    self.get_at(node, &partial.slice(1, partial.len()))
+                    let index = partial.at(0);
+                    self.get_at(borrow_branch.children[index].clone(), &partial.offset(1))
                 }
             }
             Node::Extension(extension) => {
-                let prefix = extension.get_prefix();
-                let match_len = partial.common_prefix(prefix);
+                let extension = extension.borrow();
+
+                let prefix = &extension.prefix;
+                let match_len = partial.common_prefix(&prefix);
                 if match_len == prefix.len() {
-                    self.get_at(
-                        extension.get_node(),
-                        &partial.slice(match_len, partial.len()),
-                    )
+                    self.get_at(extension.node.clone(), &partial.offset(match_len))
                 } else {
                     Ok(None)
                 }
             }
-            Node::Hash(hash) => {
-                let n = self.get_node_from_hash(hash.get_hash())?;
-                self.get_at(&n, partial)
+            Node::Hash(hash_node) => {
+                let borrow_hash_node = hash_node.borrow();
+                let n = self.recover_from_db(&borrow_hash_node.hash)?;
+                self.get_at(n, partial)
             }
+        }
+    }
+
+    fn insert_at(&self, n: Node, partial: Nibbles, value: Vec<u8>) -> TrieResult<Node> {
+        match n {
+            Node::Empty => Ok(Node::from_leaf(partial, value)),
+            Node::Leaf(leaf) => {
+                let mut borrow_leaf = leaf.borrow_mut();
+
+                let old_partial = &borrow_leaf.key;
+                let match_index = partial.common_prefix(old_partial);
+                if match_index == old_partial.len() {
+                    // replace leaf value
+                    borrow_leaf.value = value;
+                    return Ok(Node::Leaf(leaf.clone()));
+                }
+
+                let mut branch = BranchNode {
+                    children: empty_children(),
+                    value: None,
+                };
+
+                let n = Node::from_leaf(
+                    old_partial.offset(match_index + 1),
+                    borrow_leaf.value.clone(),
+                );
+                branch.insert(old_partial.at(match_index), n);
+
+                let n = Node::from_leaf(partial.offset(match_index + 1), value);
+                branch.insert(partial.at(match_index), n);
+
+                if match_index == 0 {
+                    return Ok(Node::Branch(Rc::new(RefCell::new(branch))));
+                }
+
+                // if include a common prefix
+                Ok(Node::from_extension(
+                    partial.slice(0, match_index),
+                    Node::Branch(Rc::new(RefCell::new(branch))),
+                ))
+            }
+            Node::Branch(branch) => {
+                let mut borrow_branch = branch.borrow_mut();
+
+                if partial.at(0) == 16 {
+                    borrow_branch.value = Some(value);
+                    return Ok(Node::Branch(branch.clone()));
+                }
+
+                let child = borrow_branch.children[partial.at(0)].clone();
+                let new_child = self.insert_at(child, partial.offset(1), value)?;
+                borrow_branch.children[partial.at(0)] = new_child;
+                Ok(Node::Branch(branch.clone()))
+            }
+            Node::Extension(ext) => {
+                let mut borrow_ext = ext.borrow_mut();
+
+                let prefix = &borrow_ext.prefix;
+                let sub_node = borrow_ext.node.clone();
+                let match_index = partial.common_prefix(&prefix);
+
+                if match_index == 0 {
+                    let mut branch = BranchNode {
+                        children: empty_children(),
+                        value: None,
+                    };
+                    branch.insert(
+                        prefix.at(0),
+                        if prefix.len() == 1 {
+                            sub_node
+                        } else {
+                            Node::from_extension(prefix.offset(1), sub_node)
+                        },
+                    );
+                    let node = Node::Branch(Rc::new(RefCell::new(branch)));
+
+                    return self.insert_at(node, partial, value);
+                }
+
+                if match_index == prefix.len() {
+                    let new_node = self.insert_at(sub_node, partial.offset(match_index), value)?;
+                    return Ok(Node::from_extension(prefix.clone(), new_node));
+                }
+
+                let new_ext = Node::from_extension(prefix.offset(match_index), sub_node);
+                let new_node = self.insert_at(new_ext, partial.offset(match_index), value)?;
+                borrow_ext.prefix = prefix.slice(0, match_index);
+                borrow_ext.node = new_node;
+                Ok(Node::Extension(ext.clone()))
+            }
+            Node::Hash(hash_node) => {
+                let borrow_hash_node = hash_node.borrow();
+
+                self.passing_keys
+                    .borrow_mut()
+                    .insert(borrow_hash_node.hash.to_vec());
+                let n = self.recover_from_db(&borrow_hash_node.hash)?;
+                self.insert_at(n, partial, value)
+            }
+        }
+    }
+
+    fn delete_at(&self, n: Node, partial: &Nibbles) -> TrieResult<(Node, bool)> {
+        let (new_n, deleted) = match n {
+            Node::Empty => Ok((Node::Empty, false)),
+            Node::Leaf(leaf) => {
+                let borrow_leaf = leaf.borrow();
+
+                if &borrow_leaf.key == partial {
+                    return Ok((Node::Empty, true));
+                }
+                Ok((Node::Leaf(leaf.clone()), false))
+            }
+            Node::Branch(branch) => {
+                let mut borrow_branch = branch.borrow_mut();
+
+                if partial.at(0) == 16 {
+                    borrow_branch.value = None;
+                    return Ok((Node::Branch(branch.clone()), true));
+                }
+
+                let index = partial.at(0);
+                let node = borrow_branch.children[index].clone();
+
+                let (new_n, deleted) = self.delete_at(node, &partial.offset(1))?;
+                if deleted {
+                    borrow_branch.children[index] = new_n;
+                }
+
+                Ok((Node::Branch(branch.clone()), deleted))
+            }
+            Node::Extension(ext) => {
+                let mut borrow_ext = ext.borrow_mut();
+
+                let prefix = &borrow_ext.prefix;
+                let match_len = partial.common_prefix(prefix);
+
+                if match_len == prefix.len() {
+                    let (new_n, deleted) =
+                        self.delete_at(borrow_ext.node.clone(), &partial.offset(match_len))?;
+
+                    if deleted {
+                        borrow_ext.node = new_n;
+                    }
+
+                    Ok((Node::Extension(ext.clone()), deleted))
+                } else {
+                    Ok((Node::Extension(ext.clone()), false))
+                }
+            }
+            Node::Hash(hash_node) => {
+                let hash = hash_node.borrow().hash.clone();
+                self.passing_keys.borrow_mut().insert(hash.clone());
+
+                let n = self.recover_from_db(&hash)?;
+                self.delete_at(n, partial)
+            }
+        }?;
+
+        if deleted {
+            Ok((self.degenerate(new_n)?, deleted))
+        } else {
+            Ok((new_n, deleted))
+        }
+    }
+
+    fn degenerate(&self, n: Node) -> TrieResult<Node> {
+        match n {
+            Node::Branch(branch) => {
+                let borrow_branch = branch.borrow();
+
+                let mut used_indexs = vec![];
+                for (index, node) in borrow_branch.children.iter().enumerate() {
+                    match node {
+                        Node::Empty => continue,
+                        _ => used_indexs.push(index),
+                    }
+                }
+
+                // if only a value node, transmute to leaf.
+                if used_indexs.is_empty() && borrow_branch.value.is_some() {
+                    let key = Nibbles::from_raw([].to_vec(), true);
+                    let value = borrow_branch.value.clone().unwrap();
+                    Ok(Node::from_leaf(key, value))
+                // if only one node. make an extension.
+                } else if used_indexs.len() == 1 && borrow_branch.value.is_none() {
+                    let used_index = used_indexs[0];
+                    let n = borrow_branch.children[used_index].clone();
+
+                    let new_node =
+                        Node::from_extension(Nibbles::from_hex(vec![used_index as u8]), n);
+                    self.degenerate(new_node)
+                } else {
+                    Ok(Node::Branch(branch.clone()))
+                }
+            }
+            Node::Extension(ext) => {
+                let borrow_ext = ext.borrow();
+
+                let prefix = &borrow_ext.prefix;
+                match borrow_ext.node.clone() {
+                    Node::Extension(sub_ext) => {
+                        let borrow_sub_ext = sub_ext.borrow();
+
+                        let new_prefix = prefix.join(&borrow_sub_ext.prefix);
+                        let new_n = Node::from_extension(new_prefix, borrow_sub_ext.node.clone());
+                        self.degenerate(new_n)
+                    }
+                    Node::Leaf(leaf) => {
+                        let borrow_leaf = leaf.borrow();
+
+                        let new_prefix = prefix.join(&borrow_leaf.key);
+                        Ok(Node::from_leaf(new_prefix, borrow_leaf.value.clone()))
+                    }
+                    // try again after recovering node from the db.
+                    Node::Hash(hash_node) => {
+                        let hash = hash_node.borrow().hash.clone();
+                        self.passing_keys.borrow_mut().insert(hash.clone());
+
+                        let new_node = self.recover_from_db(&hash)?;
+
+                        let n = Node::from_extension(borrow_ext.prefix.clone(), new_node);
+                        self.degenerate(n)
+                    }
+                    _ => Ok(Node::Extension(ext.clone())),
+                }
+            }
+            _ => Ok(n),
         }
     }
 
@@ -213,395 +471,197 @@ where
     // add them in the path.
     // In the code below, we only add the nodes get by `get_node_from_hash`, because they contains
     // all data stored in db, including nodes whose encoded data is less than hash length.
-    fn get_path_at(&self, n: &Node, partial: &Nibbles) -> TrieResult<Vec<Node>, C, D> {
+    fn get_path_at(&self, n: Node, partial: &Nibbles) -> TrieResult<Vec<Node>> {
         match n {
             Node::Empty | Node::Leaf(_) => Ok(vec![]),
-            Node::Branch(ref branch) => {
+            Node::Branch(branch) => {
+                let borrow_branch = branch.borrow();
+
                 if partial.is_empty() || partial.at(0) == 16 {
                     Ok(vec![])
                 } else {
-                    let index = partial.at(0) as usize;
-                    let node = branch.at_children(index);
-                    let res = self.get_path_at(node, &partial.slice(1, partial.len()))?;
-                    Ok(res)
+                    let node = borrow_branch.children[partial.at(0)].clone();
+                    self.get_path_at(node, &partial.offset(1))
                 }
             }
-            Node::Extension(extension) => {
-                let prefix = extension.get_prefix();
+            Node::Extension(ext) => {
+                let borrow_ext = ext.borrow();
+
+                let prefix = &borrow_ext.prefix;
                 let match_len = partial.common_prefix(prefix);
+
                 if match_len == prefix.len() {
-                    let res = self.get_path_at(
-                        extension.get_node(),
-                        &partial.slice(match_len, partial.len()),
-                    )?;
-                    Ok(res)
+                    self.get_path_at(borrow_ext.node.clone(), &partial.offset(match_len))
                 } else {
                     Ok(vec![])
                 }
             }
-            Node::Hash(hash) => {
-                let n = self.get_node_from_hash(hash.get_hash())?;
-                let mut rest = self.get_path_at(&n, partial)?;
+            Node::Hash(hash_node) => {
+                let n = self.recover_from_db(&hash_node.borrow().hash.clone())?;
+                let mut rest = self.get_path_at(n.clone(), partial)?;
                 rest.push(n);
                 Ok(rest)
             }
         }
     }
 
-    fn delete_at(&mut self, n: Node, partial: &Nibbles) -> TrieResult<(Node, bool), C, D> {
-        let (new_n, deleted) = match n {
-            Node::Empty => Ok((Node::Empty, false)),
-            Node::Leaf(leaf) => {
-                if leaf.get_key() == partial {
-                    Ok((Node::Empty, true))
-                } else {
-                    Ok((leaf.into_node(), false))
-                }
-            }
-            Node::Branch(mut branch) => {
-                if partial.at(0) == 16 {
-                    branch.set_value(None);
-                    Ok((branch.into_node(), true))
-                } else {
-                    let index = partial.at(0) as usize;
-                    let node = branch.at_children(index);
-
-                    let (new_n, deleted) =
-                        self.delete_at(node.clone(), &partial.slice(1, partial.len()))?;
-                    if deleted {
-                        branch.insert(index, new_n);
-                    }
-
-                    Ok((branch.into_node(), deleted))
-                }
-            }
-            Node::Extension(mut extension) => {
-                let prefix = extension.get_prefix();
-                let match_len = partial.common_prefix(prefix);
-                if match_len == prefix.len() {
-                    let (new_n, deleted) = self.delete_at(
-                        extension.get_node().clone(),
-                        &partial.slice(match_len, partial.len()),
-                    )?;
-
-                    if deleted {
-                        extension.set_node(new_n);
-                    }
-                    Ok((extension.into_node(), deleted))
-                } else {
-                    Ok((extension.into_node(), false))
-                }
-            }
-            Node::Hash(hash) => {
-                self.passing_keys
-                    .insert(self.codec.decode_hash(hash.get_hash(), true));
-                self.delete_at(self.get_node_from_hash(hash.get_hash())?, partial)
-            }
-        }?;
-
-        Ok((self.degenerate(new_n)?, deleted))
-    }
-
-    fn insert_at(&mut self, n: Node, partial: Nibbles, value: Vec<u8>) -> TrieResult<Node, C, D> {
-        match n {
-            Node::Empty => Ok(LeafNode::new(partial, value).into_node()),
-            Node::Leaf(mut leaf) => {
-                let old_partial = leaf.get_key();
-                let match_index = partial.common_prefix(old_partial);
-                if match_index == old_partial.len() {
-                    // replace leaf value
-                    leaf.value = value;
-                    return Ok(leaf.into_node());
-                }
-
-                // create branch node
-                let mut branch = BranchNode::new();
-                let n =
-                    LeafNode::new(partial.slice(match_index + 1, partial.len()), value).into_node();
-                branch.insert(partial.at(match_index) as usize, n);
-
-                let n = LeafNode::new(
-                    old_partial.slice(match_index + 1, old_partial.len()),
-                    leaf.get_value().to_vec(),
-                )
-                .into_node();
-                branch.insert(old_partial.at(match_index) as usize, n);
-
-                if match_index == 0 {
-                    return Ok(branch.into_node());
-                }
-
-                // if include a common prefix
-                Ok(
-                    ExtensionNode::new(partial.slice(0, match_index), branch.into_node())
-                        .into_node(),
-                )
-            }
-            Node::Branch(mut branch) => {
-                if partial.at(0) == 16 {
-                    branch.set_value(Some(value));
-                    Ok(branch.into_node())
-                } else {
-                    let index = partial.at(0) as usize;
-                    let child = branch.child_mut(index);
-                    let new_n =
-                        self.insert_at(child.take(), partial.slice(1, partial.len()), value)?;
-                    child.swap(new_n);
-                    Ok(branch.into_node())
-                }
-            }
-            Node::Extension(extension) => {
-                let prefix = extension.prefix;
-                let sub_node = extension.node;
-                let match_index = partial.common_prefix(&prefix);
-
-                if match_index == 0 {
-                    let mut branch = BranchNode::new();
-                    branch.insert(
-                        prefix.at(0) as usize,
-                        if prefix.len() == 1 {
-                            *sub_node
-                        } else {
-                            ExtensionNode::new(prefix.slice(1, prefix.len()), *sub_node).into_node()
-                        },
-                    );
-                    self.insert_at(branch.into_node(), partial, value)
-                } else if match_index == prefix.len() {
-                    let new_node = self.insert_at(
-                        *sub_node,
-                        partial.slice(match_index, partial.len()),
-                        value,
-                    )?;
-
-                    Ok(ExtensionNode {
-                        prefix,
-                        node: Box::new(new_node),
-                    }
-                    .into_node())
-                } else {
-                    let new_ext = ExtensionNode {
-                        prefix: prefix.slice(match_index, prefix.len()),
-                        node: sub_node,
-                    };
-
-                    let new_n = self.insert_at(
-                        new_ext.into_node(),
-                        partial.slice(match_index, partial.len()),
-                        value,
-                    )?;
-
-                    Ok(ExtensionNode {
-                        prefix: prefix.slice(0, match_index),
-                        node: Box::new(new_n),
-                    }
-                    .into_node())
-                }
-            }
-            Node::Hash(hash) => {
-                self.passing_keys
-                    .insert(self.codec.decode_hash(hash.get_hash(), true));
-                let n = self.get_node_from_hash(hash.get_hash())?;
-                self.insert_at(n, partial, value)
-            }
-        }
-    }
-
-    fn degenerate(&mut self, n: Node) -> TrieResult<Node, C, D> {
-        let new_n = match n {
-            Node::Branch(branch) => {
-                let mut used_indexs = vec![];
-                for index in 0..16 {
-                    match branch.at_children(index) {
-                        Node::Empty => continue,
-                        _ => used_indexs.push(index),
-                    }
-                }
-
-                // if only a value node, transmute to leaf.
-                if used_indexs.is_empty() && branch.get_value().is_some() {
-                    let key = Nibbles::from_raw(&[], true);
-                    LeafNode::new(key, branch.get_value().unwrap().to_vec()).into_node()
-
-                // if only one node. make an extension.
-                } else if used_indexs.len() == 1 && branch.get_value().is_none() {
-                    let used_index = used_indexs[0];
-                    let n = branch.at_children(used_index);
-
-                    let new_node =
-                        ExtensionNode::new(Nibbles::from_hex(vec![used_index as u8]), n.clone())
-                            .into_node();
-                    self.degenerate(new_node)?
-                } else {
-                    branch.into_node()
-                }
-            }
-            Node::Extension(mut extension) => {
-                let prefix = extension.get_prefix();
-
-                match extension.get_node() {
-                    Node::Extension(sub_ext) => {
-                        let new_prefix = prefix.join(sub_ext.get_prefix());
-                        let new_n =
-                            ExtensionNode::new(new_prefix, sub_ext.get_node().clone()).into_node();
-                        self.degenerate(new_n)?
-                    }
-                    Node::Leaf(leaf) => {
-                        let new_prefix = prefix.join(leaf.get_key());
-                        LeafNode::new(new_prefix, leaf.get_value().to_vec()).into_node()
-                    }
-                    // try again after recovering node from the db.
-                    Node::Hash(hash) => {
-                        self.passing_keys
-                            .insert(self.codec.decode_hash(hash.get_hash(), true));
-                        extension.set_node(self.get_node_from_hash(hash.get_hash())?);
-                        self.degenerate(extension.into_node())?
-                    }
-                    _ => extension.into_node(),
-                }
-            }
-            _ => n,
-        };
-
-        Ok(new_n)
-    }
-
-    fn commit(&mut self) -> TrieResult<C::Hash, C, D> {
-        let encoded = self.encode_node(&self.root.clone());
-        let root_hash = if encoded.len() < C::HASH_LENGTH {
-            let hash = self.codec.decode_hash(&encoded, false);
+    fn commit(&mut self) -> TrieResult<Vec<u8>> {
+        let encoded = self.encode_node(self.root.clone());
+        let root_hash = if encoded.len() < H::LENGTH {
+            let hash = H::digest(&encoded);
             self.cache.borrow_mut().insert(hash.clone(), encoded);
             hash
         } else {
-            self.codec.decode_hash(&encoded, true)
+            encoded
         };
 
         let mut keys = Vec::with_capacity(self.cache.borrow().len());
         let mut values = Vec::with_capacity(self.cache.borrow().len());
         for (k, v) in self.cache.borrow_mut().drain() {
-            keys.push(k.as_ref().to_vec());
+            keys.push(k.to_vec());
             values.push(v);
         }
 
-        self.db.insert_batch(keys, values).map_err(TrieError::DB)?;
+        self.db
+            .insert_batch(keys, values)
+            .map_err(|e| TrieError::DB(e.to_string()))?;
 
         let removed_keys: Vec<Vec<u8>> = self
             .passing_keys
+            .borrow()
             .iter()
-            .filter(|h| !self.gen_keys.borrow().contains(&h))
-            .map(|h| h.as_ref().to_vec())
+            .filter(|h| !self.gen_keys.borrow().contains(&h.to_vec()))
+            .map(|h| h.to_vec())
             .collect();
 
-        self.db.remove_batch(&removed_keys).map_err(TrieError::DB)?;
+        self.db
+            .remove_batch(&removed_keys)
+            .map_err(|e| TrieError::DB(e.to_string()))?;
 
-        self.root_hash = root_hash.clone();
+        self.root_hash = root_hash.to_vec();
         self.gen_keys.borrow_mut().clear();
-        self.passing_keys.clear();
-        self.root = self.get_node_from_hash(root_hash.as_ref())?;
+        self.passing_keys.borrow_mut().clear();
+        self.root = self.recover_from_db(&root_hash)?;
         Ok(root_hash)
     }
 
-    fn decode_node(&self, data: &[u8]) -> Result<Node, C::Error> {
-        self.codec.decode(data, |dp| match dp {
-            DataType::Empty => Ok(Node::Empty),
-            DataType::Pair(key, value) => {
-                let nibble = Nibbles::from_compact(key);
-                if nibble.is_leaf() {
-                    Ok(LeafNode::new(nibble, value.to_vec()).into_node())
-                } else {
-                    let n = self.try_decode_hash_node(value)?;
-                    Ok(ExtensionNode::new(nibble, n).into_node())
-                }
-            }
-            DataType::Values(values) => {
-                let mut branch = BranchNode::new();
-                for (index, item) in values.iter().enumerate().take(16) {
-                    let n = self.try_decode_hash_node(item)?;
-                    branch.insert(index, n);
-                }
-
-                if self.codec.encode_empty() == values[16] {
-                    branch.set_value(None)
-                } else {
-                    branch.set_value(Some(values[16].to_vec()))
-                }
-                Ok(branch.into_node())
-            }
-            DataType::Hash(hash) => self.try_decode_hash_node(hash),
-        })
-    }
-
-    fn encode_node(&self, n: &Node) -> Vec<u8> {
+    fn encode_node(&self, n: Node) -> Vec<u8> {
         // Returns the hash value directly to avoid double counting.
-        if let Node::Hash(hash) = n {
-            return hash.get_hash().to_vec();
+        if let Node::Hash(hash_node) = n {
+            return hash_node.borrow().hash.clone();
         }
-        let data = self.encode_node_raw(n);
 
+        let data = self.encode_raw(n.clone());
         // Nodes smaller than 32 bytes are stored inside their parent,
         // Nodes equal to 32 bytes are returned directly
-        if data.len() < C::HASH_LENGTH {
+        if data.len() < H::LENGTH {
             data
         } else {
-            let hash = self.codec.decode_hash(&data, false);
+            let hash = H::digest(&data);
             self.cache.borrow_mut().insert(hash.clone(), data);
 
             self.gen_keys.borrow_mut().insert(hash.clone());
-            Vec::from(hash.as_ref())
+            hash
         }
     }
 
-    /// encode node without final hash
-    fn encode_node_raw(&self, n: &Node) -> Vec<u8> {
+    fn encode_raw(&self, n: Node) -> Vec<u8> {
         match n {
-            Node::Empty => self.codec.encode_empty(),
-            Node::Leaf(ref leaf) => self.codec.encode_pair(
-                &self.codec.encode_raw(&leaf.get_key().encode_compact()),
-                &self.codec.encode_raw(leaf.get_value()),
-            ),
+            Node::Empty => rlp::NULL_RLP.to_vec(),
+            Node::Leaf(leaf) => {
+                let borrow_leaf = leaf.borrow();
+
+                let mut stream = RlpStream::new_list(2);
+                stream.append(&borrow_leaf.key.encode_compact());
+                stream.append(&borrow_leaf.value);
+                stream.out()
+            }
             Node::Branch(branch) => {
-                let mut values = vec![];
-                for index in 0..16 {
-                    let data = self.encode_node(branch.at_children(index));
-                    if data.len() == C::HASH_LENGTH {
-                        values.push(self.codec.encode_raw(&data));
+                let borrow_branch = branch.borrow();
+
+                let mut stream = RlpStream::new_list(17);
+                for i in 0..16 {
+                    let n = borrow_branch.children[i].clone();
+                    let data = self.encode_node(n);
+                    if data.len() == H::LENGTH {
+                        stream.append(&data);
                     } else {
-                        values.push(data);
+                        stream.append_raw(&data, 1);
                     }
                 }
-                match branch.get_value() {
-                    Some(v) => values.push(self.codec.encode_raw(v)),
-                    None => values.push(self.codec.encode_empty()),
-                }
-                self.codec.encode_values(&values)
-            }
-            Node::Extension(extension) => {
-                let key = self
-                    .codec
-                    .encode_raw(&extension.get_prefix().encode_compact());
-                let value = self.encode_node(extension.get_node());
 
-                let value = if value.len() == C::HASH_LENGTH {
-                    self.codec.encode_raw(&value)
-                } else {
-                    value
+                match &borrow_branch.value {
+                    Some(v) => stream.append(v),
+                    None => stream.append_empty_data(),
                 };
-                self.codec.encode_pair(&key, &value)
+                stream.out()
+            }
+            Node::Extension(ext) => {
+                let borrow_ext = ext.borrow();
+
+                let mut stream = RlpStream::new_list(2);
+                stream.append(&borrow_ext.prefix.encode_compact());
+                let data = self.encode_node(borrow_ext.node.clone());
+                if data.len() == H::LENGTH {
+                    stream.append(&data);
+                } else {
+                    stream.append_raw(&data, 1);
+                }
+                stream.out()
             }
             Node::Hash(_hash) => unreachable!(),
         }
     }
 
-    fn try_decode_hash_node(&self, data: &[u8]) -> Result<Node, C::Error> {
-        if data.len() == C::HASH_LENGTH {
-            Ok(HashNode::new(data).into_node())
-        } else {
-            self.decode_node(data)
+    fn decode_node(&self, data: &[u8]) -> TrieResult<Node> {
+        let r = Rlp::new(data);
+
+        match r.prototype()? {
+            Prototype::Data(0) => Ok(Node::Empty),
+            Prototype::List(2) => {
+                let key = r.at(0)?.data()?;
+                let key = Nibbles::from_compact(key.to_vec());
+
+                if key.is_leaf() {
+                    Ok(Node::from_leaf(key, r.at(1)?.data()?.to_vec()))
+                } else {
+                    let n = self.decode_node(r.at(1)?.as_raw())?;
+
+                    Ok(Node::from_extension(key, n))
+                }
+            }
+            Prototype::List(17) => {
+                let mut nodes = empty_children();
+                #[allow(clippy::needless_range_loop)]
+                for i in 0..nodes.len() {
+                    let rlp_data = r.at(i)?;
+                    let n = self.decode_node(rlp_data.as_raw())?;
+                    nodes[i] = n;
+                }
+
+                // The last element is a value node.
+                let value_rlp = r.at(16)?;
+                let value = if value_rlp.is_empty() {
+                    None
+                } else {
+                    Some(value_rlp.data()?.to_vec())
+                };
+
+                Ok(Node::from_branch(nodes, value))
+            }
+            _ => {
+                if r.is_data() && r.size() == H::LENGTH {
+                    Ok(Node::from_hash(r.data()?.to_vec()))
+                } else {
+                    Err(TrieError::InvalidData)
+                }
+            }
         }
     }
 
-    fn get_node_from_hash(&self, hash: &[u8]) -> TrieResult<Node, C, D> {
-        match self.db.get(hash).map_err(TrieError::DB)? {
-            Some(data) => self.decode_node(&data).map_err(TrieError::NodeCodec),
+    fn recover_from_db(&self, key: &[u8]) -> TrieResult<Node> {
+        match self.db.get(key).map_err(|e| TrieError::DB(e.to_string()))? {
+            Some(value) => Ok(self.decode_node(&value)?),
             None => Ok(Node::Empty),
         }
     }
@@ -617,21 +677,21 @@ mod tests {
     use ethereum_types;
 
     use super::{PatriciaTrie, Trie};
-    use crate::codec::{NodeCodec, RLPNodeCodec};
     use crate::db::{MemoryDB, DB};
+    use crate::{Hasher, Keccak256Hash};
 
     #[test]
     fn test_trie_insert() {
         let memdb = Arc::new(MemoryDB::new(true));
-        let mut trie = PatriciaTrie::new(memdb, RLPNodeCodec::default());
-        trie.insert(b"test", b"test").unwrap();
+        let mut trie = PatriciaTrie::<_, Keccak256Hash>::new(memdb);
+        trie.insert(b"test".to_vec(), b"test".to_vec()).unwrap();
     }
 
     #[test]
     fn test_trie_get() {
         let memdb = Arc::new(MemoryDB::new(true));
-        let mut trie = PatriciaTrie::new(memdb, RLPNodeCodec::default());
-        trie.insert(b"test", b"test").unwrap();
+        let mut trie = PatriciaTrie::<_, Keccak256Hash>::new(memdb);
+        trie.insert(b"test".to_vec(), b"test".to_vec()).unwrap();
         let v = trie.get(b"test").unwrap();
 
         assert_eq!(Some(b"test".to_vec()), v)
@@ -640,12 +700,12 @@ mod tests {
     #[test]
     fn test_trie_random_insert() {
         let memdb = Arc::new(MemoryDB::new(true));
-        let mut trie = PatriciaTrie::new(memdb, RLPNodeCodec::default());
+        let mut trie = PatriciaTrie::<_, Keccak256Hash>::new(memdb);
 
         for _ in 0..1000 {
             let rand_str: String = thread_rng().sample_iter(&Alphanumeric).take(30).collect();
             let val = rand_str.as_bytes();
-            trie.insert(val, val).unwrap();
+            trie.insert(val.to_vec(), val.to_vec()).unwrap();
 
             let v = trie.get(val).unwrap();
             assert_eq!(v.map(|v| v.to_vec()), Some(val.to_vec()));
@@ -655,8 +715,8 @@ mod tests {
     #[test]
     fn test_trie_contains() {
         let memdb = Arc::new(MemoryDB::new(true));
-        let mut trie = PatriciaTrie::new(memdb, RLPNodeCodec::default());
-        trie.insert(b"test", b"test").unwrap();
+        let mut trie = PatriciaTrie::<_, Keccak256Hash>::new(memdb);
+        trie.insert(b"test".to_vec(), b"test".to_vec()).unwrap();
         assert_eq!(true, trie.contains(b"test").unwrap());
         assert_eq!(false, trie.contains(b"test2").unwrap());
     }
@@ -664,8 +724,8 @@ mod tests {
     #[test]
     fn test_trie_remove() {
         let memdb = Arc::new(MemoryDB::new(true));
-        let mut trie = PatriciaTrie::new(memdb, RLPNodeCodec::default());
-        trie.insert(b"test", b"test").unwrap();
+        let mut trie = PatriciaTrie::<_, Keccak256Hash>::new(memdb);
+        trie.insert(b"test".to_vec(), b"test".to_vec()).unwrap();
         let removed = trie.remove(b"test").unwrap();
         assert_eq!(true, removed)
     }
@@ -673,12 +733,12 @@ mod tests {
     #[test]
     fn test_trie_random_remove() {
         let memdb = Arc::new(MemoryDB::new(true));
-        let mut trie = PatriciaTrie::new(memdb, RLPNodeCodec::default());
+        let mut trie = PatriciaTrie::<_, Keccak256Hash>::new(memdb);
 
         for _ in 0..1000 {
             let rand_str: String = thread_rng().sample_iter(&Alphanumeric).take(30).collect();
             let val = rand_str.as_bytes();
-            trie.insert(val, val).unwrap();
+            trie.insert(val.to_vec(), val.to_vec()).unwrap();
 
             let removed = trie.remove(val).unwrap();
             assert_eq!(true, removed);
@@ -686,50 +746,25 @@ mod tests {
     }
 
     #[test]
-    fn test_trie_empty_commit() {
-        let memdb = Arc::new(MemoryDB::new(true));
-        let mut trie = PatriciaTrie::new(memdb, RLPNodeCodec::default());
-
-        let codec = RLPNodeCodec::default();
-        let empty_node_data = codec.decode_hash(&codec.encode_empty(), false);
-        let root = trie.commit().unwrap();
-
-        assert_eq!(hex::encode(root), hex::encode(empty_node_data))
-    }
-
-    #[test]
-    fn test_trie_commit() {
-        let memdb = Arc::new(MemoryDB::new(true));
-        let mut trie = PatriciaTrie::new(memdb, RLPNodeCodec::default());
-        trie.insert(b"test", b"test").unwrap();
-        let root = trie.commit().unwrap();
-
-        let codec = RLPNodeCodec::default();
-        let empty_node_data = codec.decode_hash(&codec.encode_empty(), false);
-        assert_ne!(hex::encode(root), hex::encode(empty_node_data))
-    }
-
-    #[test]
     fn test_trie_from_root() {
         let memdb = Arc::new(MemoryDB::new(true));
         let root = {
-            let mut trie = PatriciaTrie::new(Arc::clone(&memdb), RLPNodeCodec::default());
-            trie.insert(b"test", b"test").unwrap();
-            trie.insert(b"test1", b"test").unwrap();
-            trie.insert(b"test2", b"test").unwrap();
-            trie.insert(b"test23", b"test").unwrap();
-            trie.insert(b"test33", b"test").unwrap();
-            trie.insert(b"test44", b"test").unwrap();
+            let mut trie = PatriciaTrie::<_, Keccak256Hash>::new(Arc::clone(&memdb));
+            trie.insert(b"test".to_vec(), b"test".to_vec()).unwrap();
+            trie.insert(b"test1".to_vec(), b"test".to_vec()).unwrap();
+            trie.insert(b"test2".to_vec(), b"test".to_vec()).unwrap();
+            trie.insert(b"test23".to_vec(), b"test".to_vec()).unwrap();
+            trie.insert(b"test33".to_vec(), b"test".to_vec()).unwrap();
+            trie.insert(b"test44".to_vec(), b"test".to_vec()).unwrap();
             trie.root().unwrap()
         };
 
-        let mut trie =
-            PatriciaTrie::from(Arc::clone(&memdb), RLPNodeCodec::default(), &root).unwrap();
+        let mut trie = PatriciaTrie::<_, Keccak256Hash>::from(Arc::clone(&memdb), &root).unwrap();
         let v1 = trie.get(b"test33").unwrap();
         assert_eq!(Some(b"test".to_vec()), v1);
         let v2 = trie.get(b"test44").unwrap();
         assert_eq!(Some(b"test".to_vec()), v2);
-        let root2 = trie.commit().unwrap();
+        let root2 = trie.root().unwrap();
         assert_eq!(hex::encode(root), hex::encode(root2));
     }
 
@@ -737,19 +772,18 @@ mod tests {
     fn test_trie_from_root_and_insert() {
         let memdb = Arc::new(MemoryDB::new(true));
         let root = {
-            let mut trie = PatriciaTrie::new(Arc::clone(&memdb), RLPNodeCodec::default());
-            trie.insert(b"test", b"test").unwrap();
-            trie.insert(b"test1", b"test").unwrap();
-            trie.insert(b"test2", b"test").unwrap();
-            trie.insert(b"test23", b"test").unwrap();
-            trie.insert(b"test33", b"test").unwrap();
-            trie.insert(b"test44", b"test").unwrap();
+            let mut trie = PatriciaTrie::<_, Keccak256Hash>::new(Arc::clone(&memdb));
+            trie.insert(b"test".to_vec(), b"test".to_vec()).unwrap();
+            trie.insert(b"test1".to_vec(), b"test".to_vec()).unwrap();
+            trie.insert(b"test2".to_vec(), b"test".to_vec()).unwrap();
+            trie.insert(b"test23".to_vec(), b"test".to_vec()).unwrap();
+            trie.insert(b"test33".to_vec(), b"test".to_vec()).unwrap();
+            trie.insert(b"test44".to_vec(), b"test".to_vec()).unwrap();
             trie.commit().unwrap()
         };
 
-        let mut trie =
-            PatriciaTrie::from(Arc::clone(&memdb), RLPNodeCodec::default(), &root).unwrap();
-        trie.insert(b"test55", b"test55").unwrap();
+        let mut trie = PatriciaTrie::<_, Keccak256Hash>::from(Arc::clone(&memdb), &root).unwrap();
+        trie.insert(b"test55".to_vec(), b"test55".to_vec()).unwrap();
         trie.commit().unwrap();
         let v = trie.get(b"test55").unwrap();
         assert_eq!(Some(b"test55".to_vec()), v);
@@ -759,18 +793,17 @@ mod tests {
     fn test_trie_from_root_and_delete() {
         let memdb = Arc::new(MemoryDB::new(true));
         let root = {
-            let mut trie = PatriciaTrie::new(Arc::clone(&memdb), RLPNodeCodec::default());
-            trie.insert(b"test", b"test").unwrap();
-            trie.insert(b"test1", b"test").unwrap();
-            trie.insert(b"test2", b"test").unwrap();
-            trie.insert(b"test23", b"test").unwrap();
-            trie.insert(b"test33", b"test").unwrap();
-            trie.insert(b"test44", b"test").unwrap();
+            let mut trie = PatriciaTrie::<_, Keccak256Hash>::new(Arc::clone(&memdb));
+            trie.insert(b"test".to_vec(), b"test".to_vec()).unwrap();
+            trie.insert(b"test1".to_vec(), b"test".to_vec()).unwrap();
+            trie.insert(b"test2".to_vec(), b"test".to_vec()).unwrap();
+            trie.insert(b"test23".to_vec(), b"test".to_vec()).unwrap();
+            trie.insert(b"test33".to_vec(), b"test".to_vec()).unwrap();
+            trie.insert(b"test44".to_vec(), b"test".to_vec()).unwrap();
             trie.commit().unwrap()
         };
 
-        let mut trie =
-            PatriciaTrie::from(Arc::clone(&memdb), RLPNodeCodec::default(), &root).unwrap();
+        let mut trie = PatriciaTrie::<_, Keccak256Hash>::from(Arc::clone(&memdb), &root).unwrap();
         let removed = trie.remove(b"test44").unwrap();
         assert_eq!(true, removed);
         let removed = trie.remove(b"test33").unwrap();
@@ -786,33 +819,40 @@ mod tests {
         let v: ethereum_types::H256 = 0x1234.into();
 
         let root1 = {
-            let db = Arc::new(MemoryDB::new(true));
-            let mut trie = PatriciaTrie::new(db, RLPNodeCodec::default());
-            trie.insert(k0.as_ref(), v.as_bytes()).unwrap();
+            let memdb = Arc::new(MemoryDB::new(true));
+            let mut trie = PatriciaTrie::<_, Keccak256Hash>::new(memdb);
+            trie.insert(k0.as_bytes().to_vec(), v.as_bytes().to_vec())
+                .unwrap();
             trie.root().unwrap()
         };
 
         let root2 = {
-            let db = Arc::new(MemoryDB::new(true));
-            let mut trie = PatriciaTrie::new(db, RLPNodeCodec::default());
-            trie.insert(k0.as_ref(), v.as_bytes()).unwrap();
-            trie.insert(k1.as_ref(), v.as_bytes()).unwrap();
+            let memdb = Arc::new(MemoryDB::new(true));
+            let mut trie = PatriciaTrie::<_, Keccak256Hash>::new(memdb);
+            trie.insert(k0.as_bytes().to_vec(), v.as_bytes().to_vec())
+                .unwrap();
+            trie.insert(k1.as_bytes().to_vec(), v.as_bytes().to_vec())
+                .unwrap();
             trie.root().unwrap();
             trie.remove(k1.as_ref()).unwrap();
             trie.root().unwrap()
         };
 
         let root3 = {
-            let db = Arc::new(MemoryDB::new(true));
-            let mut t1 = PatriciaTrie::new(Arc::clone(&db), RLPNodeCodec::default());
-            t1.insert(k0.as_ref(), v.as_bytes()).unwrap();
-            t1.insert(k1.as_ref(), v.as_bytes()).unwrap();
-            t1.root().unwrap();
-            let root = t1.root().unwrap();
-            let mut t2 =
-                PatriciaTrie::from(Arc::clone(&db), RLPNodeCodec::default(), &root).unwrap();
-            t2.remove(k1.as_ref()).unwrap();
-            t2.root().unwrap()
+            let memdb = Arc::new(MemoryDB::new(true));
+            let mut trie1 = PatriciaTrie::<_, Keccak256Hash>::new(Arc::clone(&memdb));
+            trie1
+                .insert(k0.as_bytes().to_vec(), v.as_bytes().to_vec())
+                .unwrap();
+            trie1
+                .insert(k1.as_bytes().to_vec(), v.as_bytes().to_vec())
+                .unwrap();
+            trie1.root().unwrap();
+            let root = trie1.root().unwrap();
+            let mut trie2 =
+                PatriciaTrie::<_, Keccak256Hash>::from(Arc::clone(&memdb), &root).unwrap();
+            trie2.remove(&k1.as_bytes().to_vec()).unwrap();
+            trie2.root().unwrap()
         };
 
         assert_eq!(root1, root2);
@@ -822,7 +862,7 @@ mod tests {
     #[test]
     fn test_delete_stale_keys_with_random_insert_and_delete() {
         let memdb = Arc::new(MemoryDB::new(true));
-        let mut trie = PatriciaTrie::new(memdb, RLPNodeCodec::default());
+        let mut trie = PatriciaTrie::<_, Keccak256Hash>::new(memdb);
 
         let mut rng = rand::thread_rng();
         let mut keys = vec![];
@@ -830,7 +870,8 @@ mod tests {
             let random_bytes: Vec<u8> = (0..rng.gen_range(2, 30))
                 .map(|_| rand::random::<u8>())
                 .collect();
-            trie.insert(&random_bytes, &random_bytes).unwrap();
+            trie.insert(random_bytes.clone(), random_bytes.clone())
+                .unwrap();
             keys.push(random_bytes.clone());
         }
         trie.commit().unwrap();
@@ -842,23 +883,22 @@ mod tests {
         }
         trie.commit().unwrap();
 
-        let codec = RLPNodeCodec::default();
-        let empty_node_key = codec.decode_hash(&codec.encode_empty(), false);
+        let empty_node_key = Keccak256Hash::digest(&rlp::NULL_RLP);
         let value = trie.db.get(empty_node_key.as_ref()).unwrap().unwrap();
-        assert_eq!(value, codec.encode_empty())
+        assert_eq!(value, &rlp::NULL_RLP)
     }
 
     #[test]
     fn insert_full_branch() {
         let memdb = Arc::new(MemoryDB::new(true));
-        let mut trie = PatriciaTrie::new(memdb, RLPNodeCodec::default());
+        let mut trie = PatriciaTrie::<_, Keccak256Hash>::new(memdb);
 
-        trie.insert(b"test", b"test").unwrap();
-        trie.insert(b"test1", b"test").unwrap();
-        trie.insert(b"test2", b"test").unwrap();
-        trie.insert(b"test23", b"test").unwrap();
-        trie.insert(b"test33", b"test").unwrap();
-        trie.insert(b"test44", b"test").unwrap();
+        trie.insert(b"test".to_vec(), b"test".to_vec()).unwrap();
+        trie.insert(b"test1".to_vec(), b"test".to_vec()).unwrap();
+        trie.insert(b"test2".to_vec(), b"test".to_vec()).unwrap();
+        trie.insert(b"test23".to_vec(), b"test".to_vec()).unwrap();
+        trie.insert(b"test33".to_vec(), b"test".to_vec()).unwrap();
+        trie.insert(b"test44".to_vec(), b"test".to_vec()).unwrap();
         trie.root().unwrap();
         let v = trie.get(b"test").unwrap();
         assert_eq!(Some(b"test".to_vec()), v);

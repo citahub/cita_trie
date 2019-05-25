@@ -1,116 +1,26 @@
-use rlp::{Prototype, Rlp, RlpStream};
-use tiny_keccak;
-
-use crate::codec::{DataType, NodeCodec};
-use crate::errors::RLPCodecError;
-
-#[derive(Default, Debug, Clone)]
-pub struct RLPNodeCodec {}
-
-impl NodeCodec for RLPNodeCodec {
-    type Error = RLPCodecError;
-
-    const HASH_LENGTH: usize = 32;
-
-    type Hash = [u8; 32];
-
-    fn decode<F, T>(&self, data: &[u8], f: F) -> Result<T, Self::Error>
-    where
-        F: Fn(DataType) -> Result<T, Self::Error>,
-    {
-        let r = Rlp::new(data);
-        match r.prototype()? {
-            Prototype::Data(0) => Ok(f(DataType::Empty)?),
-            Prototype::List(2) => {
-                let key = r.at(0)?.data()?;
-                let rlp_data = r.at(1)?;
-                // TODO: if “is_data == true”, the value of the leaf node
-                // This is not a good implementation
-                // the details of MPT should not be exposed to the user.
-                let value = if rlp_data.is_data() {
-                    rlp_data.data()?
-                } else {
-                    rlp_data.as_raw()
-                };
-
-                Ok(f(DataType::Pair(&key, &value))?)
-            }
-            Prototype::List(17) => {
-                let mut values = vec![];
-                for i in 0..16 {
-                    values.push(r.at(i)?.as_raw().to_vec());
-                }
-
-                // The last element is a value node.
-                let value_rlp = r.at(16)?;
-                if value_rlp.is_empty() {
-                    values.push(self.encode_empty());
-                } else {
-                    values.push(value_rlp.data()?.to_vec());
-                }
-                Ok(f(DataType::Values(&values))?)
-            }
-            Prototype::Data(Self::HASH_LENGTH) => Ok(f(DataType::Hash(r.data()?))?),
-            _ => panic!("invalid data"),
-        }
-    }
-
-    fn encode_empty(&self) -> Vec<u8> {
-        let mut stream = RlpStream::new();
-        stream.append_empty_data();
-        stream.out()
-    }
-
-    fn encode_pair(&self, key: &[u8], value: &[u8]) -> Vec<u8> {
-        let mut stream = RlpStream::new_list(2);
-        stream.append_raw(key, 1);
-        stream.append_raw(value, 1);
-        stream.out()
-    }
-
-    fn encode_values(&self, values: &[Vec<u8>]) -> Vec<u8> {
-        let mut stream = RlpStream::new_list(values.len());
-        for data in values {
-            stream.append_raw(data, 1);
-        }
-        stream.out()
-    }
-
-    fn encode_raw(&self, raw: &[u8]) -> Vec<u8> {
-        let mut stream = RlpStream::default();
-        stream.append(&raw);
-        stream.out()
-    }
-
-    fn decode_hash(&self, data: &[u8], is_hash: bool) -> Self::Hash {
-        let mut out = [0u8; Self::HASH_LENGTH];
-        if is_hash {
-            out.copy_from_slice(data);
-        } else {
-            out.copy_from_slice(&tiny_keccak::keccak256(data)[..]);
-        }
-        out
-    }
-}
-
 #[cfg(test)]
 mod trie_tests {
     use hex::FromHex;
     use rand::Rng;
     use std::sync::Arc;
 
-    use super::RLPNodeCodec;
     use crate::db::MemoryDB;
     use crate::trie::{PatriciaTrie, Trie};
+    use crate::Keccak256Hash;
 
     fn assert_root(data: Vec<(&[u8], &[u8])>, hash: &str) {
         let memdb = Arc::new(MemoryDB::new(true));
-        let mut trie = PatriciaTrie::new(memdb, RLPNodeCodec::default());
+        let mut trie = PatriciaTrie::<_, Keccak256Hash>::new(Arc::clone(&memdb));
         for (k, v) in data.into_iter() {
-            trie.insert(k, v).unwrap();
+            trie.insert(k.to_vec(), v.to_vec()).unwrap();
         }
-        let r = format!("0x{}", hex::encode(trie.root().unwrap()));
-        assert_eq!(r.as_str(), hash);
+        let r = trie.root().unwrap();
+        let rs = format!("0x{}", hex::encode(r.clone()));
+        assert_eq!(rs.as_str(), hash);
+        let mut trie = PatriciaTrie::<_, Keccak256Hash>::from(Arc::clone(&memdb), &r).unwrap();
+        let r2 = trie.root().unwrap();
+        let rs2 = format!("0x{}", hex::encode(r2));
+        assert_eq!(rs2.as_str(), hash);
     }
 
     #[test]
@@ -640,10 +550,11 @@ mod trie_tests {
     #[test]
     fn test_proof_basic() {
         let memdb = Arc::new(MemoryDB::new(true));
-        let mut trie = PatriciaTrie::new(memdb, RLPNodeCodec::default());
-        trie.insert(b"doe", b"reindeer").unwrap();
-        trie.insert(b"dog", b"puppy").unwrap();
-        trie.insert(b"dogglesworth", b"cat").unwrap();
+        let mut trie = PatriciaTrie::<_, Keccak256Hash>::new(memdb);
+        trie.insert(b"doe".to_vec(), b"reindeer".to_vec()).unwrap();
+        trie.insert(b"dog".to_vec(), b"puppy".to_vec()).unwrap();
+        trie.insert(b"dogglesworth".to_vec(), b"cat".to_vec())
+            .unwrap();
         let root = trie.root().unwrap();
         let r = format!("0x{}", hex::encode(trie.root().unwrap()));
         assert_eq!(
@@ -665,7 +576,7 @@ mod trie_tests {
                 .collect::<Vec<_>>(),
             expected
         );
-        let value = trie.verify_proof(root, b"doe", proof).unwrap();
+        let value = trie.verify_proof(root.clone(), b"doe", proof).unwrap();
         assert_eq!(value, Some(b"reindeer".to_vec()));
 
         // proof of key not exist
@@ -683,48 +594,49 @@ mod trie_tests {
                 .collect::<Vec<_>>(),
             expected
         );
-        let value = trie.verify_proof(root, b"dogg", proof).unwrap();
+        let value = trie.verify_proof(root.clone(), b"dogg", proof).unwrap();
         assert_eq!(value, None);
 
         // empty proof
         let proof = vec![];
-        let value = trie.verify_proof(root, b"doe", proof);
+        let value = trie.verify_proof(root.clone(), b"doe", proof);
         assert_eq!(value.is_err(), true);
 
         // bad proof
         let proof = vec![b"aaa".to_vec(), b"ccc".to_vec()];
-        let value = trie.verify_proof(root, b"doe", proof);
+        let value = trie.verify_proof(root.clone(), b"doe", proof);
         assert_eq!(value.is_err(), true);
     }
 
     #[test]
     fn test_proof_random() {
         let memdb = Arc::new(MemoryDB::new(true));
-        let mut trie = PatriciaTrie::new(memdb, RLPNodeCodec::default());
+        let mut trie = PatriciaTrie::<_, Keccak256Hash>::new(memdb);
         let mut rng = rand::thread_rng();
         let mut keys = vec![];
         for _ in 0..100 {
             let random_bytes: Vec<u8> = (0..rng.gen_range(2, 30))
                 .map(|_| rand::random::<u8>())
                 .collect();
-            trie.insert(&random_bytes, &random_bytes).unwrap();
+            trie.insert(random_bytes.to_vec(), random_bytes.clone())
+                .unwrap();
             keys.push(random_bytes.clone());
         }
-        for k in &keys {
-            trie.insert(k, k).unwrap();
+        for k in keys.clone().into_iter() {
+            trie.insert(k.clone(), k.clone()).unwrap();
         }
         let root = trie.root().unwrap();
-        for k in &keys {
-            let proof = trie.get_proof(k).unwrap();
-            let value = trie.verify_proof(root, k, proof).unwrap().unwrap();
-            assert_eq!(value, *k);
+        for k in keys.into_iter() {
+            let proof = trie.get_proof(&k).unwrap();
+            let value = trie.verify_proof(root.clone(), &k, proof).unwrap().unwrap();
+            assert_eq!(value, k);
         }
     }
 
     #[test]
     fn test_proof_empty_trie() {
         let memdb = Arc::new(MemoryDB::new(true));
-        let mut trie = PatriciaTrie::new(memdb, RLPNodeCodec::default());
+        let mut trie = PatriciaTrie::<_, Keccak256Hash>::new(memdb);
         trie.root().unwrap();
         let proof = trie.get_proof(b"not-exist").unwrap();
         assert_eq!(proof.len(), 0);
@@ -733,18 +645,22 @@ mod trie_tests {
     #[test]
     fn test_proof_one_element() {
         let memdb = Arc::new(MemoryDB::new(true));
-        let mut trie = PatriciaTrie::new(memdb, RLPNodeCodec::default());
-        trie.insert(b"k", b"v").unwrap();
+        let mut trie = PatriciaTrie::<_, Keccak256Hash>::new(memdb);
+        trie.insert(b"k".to_vec(), b"v".to_vec()).unwrap();
         let root = trie.root().unwrap();
         let proof = trie.get_proof(b"k").unwrap();
         assert_eq!(proof.len(), 1);
-        let value = trie.verify_proof(root, b"k", proof.clone()).unwrap();
+        let value = trie
+            .verify_proof(root.clone(), b"k", proof.clone())
+            .unwrap();
         assert_eq!(value, Some(b"v".to_vec()));
 
         // remove key does not affect the verify process
         trie.remove(b"k").unwrap();
         let _root = trie.root().unwrap();
-        let value = trie.verify_proof(root, b"k", proof.clone()).unwrap();
+        let value = trie
+            .verify_proof(root.clone(), b"k", proof.clone())
+            .unwrap();
         assert_eq!(value, Some(b"v".to_vec()));
     }
 }

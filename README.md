@@ -11,72 +11,26 @@ The implementation is strongly inspired by [go-ethereum trie](https://github.com
 ## Features
 
 - Implementation of the Modified Patricia Tree
-- Custom decoder (RLP is provided by default)
+- Custom hash algorithm (Keccak is provided by default)
 - Custom storage interface
-
-## Interfaces
-
-### DB
-
-```rust
-pub trait DB: Send + Sync {
-    type Error: Error;
-
-    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, Self::Error>;
-    fn insert(&self, key: &[u8], value: &[u8]) -> Result<(), Self::Error>;
-    fn contains(&self, key: &[u8]) -> Result<bool, Self::Error>;
-    fn remove(&self, key: &[u8]) -> Result<(), Self::Error>;
-}
-```
-
-### Decoder
-
-```rust
-pub trait NodeCodec: Sized + Clone {
-    type Error: ::std::error::Error;
-
-    const HASH_LENGTH: usize;
-
-    type Hash: AsRef<[u8]>
-        + AsMut<[u8]>
-        + Default
-        + PartialEq
-        + Eq
-        + hash::Hash
-        + Send
-        + Sync
-        + Clone;
-
-    fn decode<F, T>(&self, data: &[u8], f: F) -> Result<T, Self::Error>
-    where
-        F: Fn(DataType) -> Result<T, Self::Error>;
-
-    fn encode_empty(&self) -> Vec<u8>;
-    fn encode_pair(&self, key: &[u8], value: &[u8]) -> Vec<u8>;
-    fn encode_values(&self, values: &[Vec<u8>]) -> Vec<u8>;
-    fn encode_raw(&self, raw: &[u8]) -> Vec<u8>;
-
-    fn decode_hash(&self, data: &[u8], is_hash: bool) -> Self::Hash;
-}
-```
 
 ## Example
 
-### Use the RLP decoder
-
 ```rust
 use std::sync::Arc;
-use cita_trie::codec::RLPNodeCodec;
-use cita_trie::db::MemoryDB;
-use cita_trie::trie::{PatriciaTrie, Trie};
+
+use cita_trie::MemoryDB;
+use cita_trie::{PatriciaTrie, Trie};
+use cita_trie::Keccak256Hash;
 
 fn main() {
     let memdb = Arc::new(MemoryDB::new(true));
+
     let key = "test-key".as_bytes();
     let value = "test-value".as_bytes();
 
     let root = {
-        let mut trie = PatriciaTrie::new(Arc::clone(&memdb), RLPNodeCodec::default());
+        let mut trie = PatriciaTrie::<_, Keccak256Hash>::new(Arc::clone(&memdb));
         trie.insert(key, value).unwrap();
 
         let v = trie.get(key).unwrap();
@@ -84,7 +38,7 @@ fn main() {
         trie.root().unwrap()
     };
 
-    let mut trie = PatriciaTrie::from(Arc::clone(memdb), RLPNodeCodec::default(), &root).unwrap();
+    let mut trie = PatriciaTrie::<_, Keccak256Hash>::new(Arc::clone(&memdb));
     let exists = trie.contains(key).unwrap();
     assert_eq!(exists, true);
     let removed = trie.remove(key).unwrap();
@@ -96,14 +50,55 @@ fn main() {
 
 ```
 
-### Custom decoder
+## Benchmark
 
-Refer to RLPCodec in `src/codec.rs`
+```sh
+cargo bench
 
-## Why not use parity/trie
+Gnuplot not found, disabling plotting
+insert one              time:   [1.6564 us 1.7287 us 1.7955 us]
+                        change: [-2.2715% +1.5151% +5.1789%] (p = 0.42 > 0.05)
+                        No change in performance detected.
 
-Because the `parity/trie` code is too difficult to understand, and the user needs to know the details of the trie to implement the decoder.
+insert 1k               time:   [1.1620 ms 1.1763 ms 1.1942 ms]
+                        change: [-2.3339% +0.7190% +3.7809%] (p = 0.65 > 0.05)
+                        No change in performance detected.
+Found 16 outliers among 100 measurements (16.00%)
+  9 (9.00%) high mild
+  7 (7.00%) high severe
 
-`CITA-trie` is more user-friendly, users can easily implement custom decoders without paying attention to trie implementation details, and provide an implementation of RLP by default.
+insert 10k              time:   [13.491 ms 13.677 ms 13.891 ms]
+                        change: [-5.3670% -1.2847% +2.8328%] (p = 0.54 > 0.05)
+                        No change in performance detected.
+Found 10 outliers among 100 measurements (10.00%)
+  9 (9.00%) high mild
+  1 (1.00%) high severe
 
-However, this project is currently not perfect, stability and performance testing has not been done, it is not recommended to use in production environments
+get based 10k           time:   [1.0707 us 1.0965 us 1.1270 us]
+                        change: [-10.331% -6.5107% -2.6793%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Found 11 outliers among 100 measurements (11.00%)
+  11 (11.00%) high mild
+
+remove 1k               time:   [538.54 us 545.18 us 553.96 us]
+                        change: [-7.3508% -0.7110% +7.0860%] (p = 0.86 > 0.05)
+                        No change in performance detected.
+Found 12 outliers among 100 measurements (12.00%)
+  5 (5.00%) high mild
+  7 (7.00%) high severe
+
+remove 10k              time:   [5.7277 ms 5.7780 ms 5.8367 ms]
+                        change: [-18.778% -5.4831% +10.503%] (p = 0.51 > 0.05)
+                        No change in performance detected.
+Found 11 outliers among 100 measurements (11.00%)
+  1 (1.00%) high mild
+  10 (10.00%) high severe
+```
+
+### Custom hash algorithm
+
+[Refer](https://github.com/cryptape/cita-trie/blob/master/src/lib.rs)
+
+### Custom storage
+
+[Refer](https://github.com/cryptape/cita-trie/blob/master/src/db.rs)

@@ -9,7 +9,7 @@ use cita_trie::MemoryDB;
 use cita_trie::{PatriciaTrie, Trie};
 
 fn insert_worse_case_benchmark(c: &mut Criterion) {
-    c.bench_function("insert one", |b| {
+    c.bench_function("cita-trie insert one", |b| {
         let mut trie = PatriciaTrie::new(
             Arc::new(MemoryDB::new(false)),
             Arc::new(HasherKeccak::new()),
@@ -22,7 +22,7 @@ fn insert_worse_case_benchmark(c: &mut Criterion) {
         })
     });
 
-    c.bench_function("insert 1k", |b| {
+    c.bench_function("cita-trie insert 1k", |b| {
         let mut trie = PatriciaTrie::new(
             Arc::new(MemoryDB::new(false)),
             Arc::new(HasherKeccak::new()),
@@ -36,7 +36,7 @@ fn insert_worse_case_benchmark(c: &mut Criterion) {
         });
     });
 
-    c.bench_function("insert 10k", |b| {
+    c.bench_function("cita-trie insert 10k", |b| {
         let mut trie = PatriciaTrie::new(
             Arc::new(MemoryDB::new(false)),
             Arc::new(HasherKeccak::new()),
@@ -46,59 +46,6 @@ fn insert_worse_case_benchmark(c: &mut Criterion) {
         b.iter(|| {
             for i in 0..keys.len() {
                 trie.insert(keys[i].clone(), values[i].clone()).unwrap()
-            }
-        });
-    });
-
-    c.bench_function("get based 10k", |b| {
-        let mut trie = PatriciaTrie::new(
-            Arc::new(MemoryDB::new(false)),
-            Arc::new(HasherKeccak::new()),
-        );
-
-        let (keys, values) = random_data(10000);
-        for i in 0..keys.len() {
-            trie.insert(keys[i].clone(), values[i].clone()).unwrap()
-        }
-
-        b.iter(|| {
-            let key = trie.get(&keys[7777]).unwrap();
-            assert_ne!(key, None);
-        });
-    });
-
-    c.bench_function("remove 1k", |b| {
-        let mut trie = PatriciaTrie::new(
-            Arc::new(MemoryDB::new(false)),
-            Arc::new(HasherKeccak::new()),
-        );
-
-        let (keys, values) = random_data(1000);
-        for i in 0..keys.len() {
-            trie.insert(keys[i].clone(), values[i].clone()).unwrap()
-        }
-
-        b.iter(|| {
-            for key in keys.iter() {
-                trie.remove(key).unwrap();
-            }
-        });
-    });
-
-    c.bench_function("remove 10k", |b| {
-        let mut trie = PatriciaTrie::new(
-            Arc::new(MemoryDB::new(false)),
-            Arc::new(HasherKeccak::new()),
-        );
-
-        let (keys, values) = random_data(10000);
-        for i in 0..keys.len() {
-            trie.insert(keys[i].clone(), values[i].clone()).unwrap()
-        }
-
-        b.iter(|| {
-            for key in keys.iter() {
-                trie.remove(key).unwrap();
             }
         });
     });

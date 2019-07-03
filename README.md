@@ -19,18 +19,20 @@ The implementation is strongly inspired by [go-ethereum trie](https://github.com
 ```rust
 use std::sync::Arc;
 
+use hasher::{Hasher, HasherKeccak}; // https://crates.io/crates/hasher
+
 use cita_trie::MemoryDB;
 use cita_trie::{PatriciaTrie, Trie};
-use cita_trie::Keccak256Hash;
 
 fn main() {
     let memdb = Arc::new(MemoryDB::new(true));
+    let hahser = Arc::new(HasherKeccak::new());
 
     let key = "test-key".as_bytes();
     let value = "test-value".as_bytes();
 
     let root = {
-        let mut trie = PatriciaTrie::<_, Keccak256Hash>::new(Arc::clone(&memdb));
+        let mut trie = PatriciaTrie::new(Arc::clone(&memdb), Arc::clone(&hasher));
         trie.insert(key, value).unwrap();
 
         let v = trie.get(key).unwrap();
@@ -38,7 +40,7 @@ fn main() {
         trie.root().unwrap()
     };
 
-    let mut trie = PatriciaTrie::<_, Keccak256Hash>::new(Arc::clone(&memdb));
+    let mut trie = PatriciaTrie::from(Arc::clone(&memdb), Arc::clone(&hasher), &root);
     let exists = trie.contains(key).unwrap();
     assert_eq!(exists, true);
     let removed = trie.remove(key).unwrap();
@@ -96,8 +98,7 @@ Found 11 outliers among 100 measurements (11.00%)
 ```
 
 ### Custom hash algorithm
-
-[Refer](https://github.com/cryptape/cita-trie/blob/master/src/lib.rs)
+See: https://crates.io/crates/hasher
 
 ### Custom storage
 

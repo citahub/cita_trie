@@ -502,7 +502,7 @@ where
     }
 
     fn commit(&mut self) -> TrieResult<Vec<u8>> {
-        println!("############################");
+        println!("############################ {:?}",self.root);
         let encoded = self.encode_node(self.root.clone());
         let root_hash = if encoded.len() < H::LENGTH {
             let hash = self.hasher.digest(&encoded);
@@ -538,6 +538,7 @@ where
         self.root_hash = root_hash.to_vec();
         self.gen_keys.borrow_mut().clear();
         self.passing_keys.borrow_mut().clear();
+        println!("############################ root_hash {:?}",self.root_hash);
         self.root = self.recover_from_db(&root_hash)?;
         Ok(root_hash)
     }
@@ -658,7 +659,11 @@ where
 
     fn recover_from_db(&self, key: &[u8]) -> TrieResult<Node> {
         match self.db.get(key).map_err(|e| TrieError::DB(e.to_string()))? {
-            Some(value) => Ok(self.decode_node(&value)?),
+            
+            Some(value) => {
+                println!("############################ value {:?}",self.root_hash);
+                Ok(self.decode_node(&value)?)
+            },
             None => Ok(Node::Empty),
         }
     }

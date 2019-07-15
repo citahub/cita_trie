@@ -502,6 +502,7 @@ where
     }
 
     fn commit(&mut self) -> TrieResult<Vec<u8>> {
+        println!("############################");
         let encoded = self.encode_node(self.root.clone());
         let root_hash = if encoded.len() < H::LENGTH {
             let hash = self.hasher.digest(&encoded);

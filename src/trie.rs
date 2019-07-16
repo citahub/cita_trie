@@ -505,11 +505,11 @@ where
         let encoded = self.encode_node(self.root.clone());
         let root_hash = if encoded.len() < H::LENGTH {
             let hash = self.hasher.digest(&encoded);
-            println!("########################### commit {:?} root {:?},hash {:?}",encode,self.root,hash);
+            println!("########################### commit {:?} root {:?},hash {:?}",encoded,self.root,hash);
             self.cache.borrow_mut().insert(hash.clone(), encoded);
             hash
         } else {
-            println!("########################### commit2 {:?} root {:?} ",encode,self.root);
+            println!("########################### commit2 {:?} root {:?} ",encoded,self.root);
             encoded
         };
 

@@ -520,6 +520,7 @@ where
             values.push(v);
         }
 
+        println!("########################### keys {:?} vs {:?} ",keys,values);
         self.db
             .insert_batch(keys, values)
             .map_err(|e| TrieError::DB(e.to_string()))?;
@@ -532,6 +533,7 @@ where
             .map(|h| h.to_vec())
             .collect();
 
+        println!("########################### removed_keys {:?} ",removed_keys);
         self.db
             .remove_batch(&removed_keys)
             .map_err(|e| TrieError::DB(e.to_string()))?;

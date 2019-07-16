@@ -658,10 +658,12 @@ where
     }
 
     fn recover_from_db(&self, key: &[u8]) -> TrieResult<Node> {
+        /*if H256::from(key) == common::hash::RLP_NULL {
+            return Ok(Node::Empty);
+        }*/
         match self.db.get(key).map_err(|e| TrieError::DB(e.to_string()))? {
-            
             Some(value) => {
-                println!("############################ value {:?}",self.root_hash);
+                println!("############################ value {:?} hash {:?}",value,self.root_hash);
                 Ok(self.decode_node(&value)?)
             },
             None => Ok(Node::Empty),

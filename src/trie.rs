@@ -502,13 +502,14 @@ where
     }
 
     fn commit(&mut self) -> TrieResult<Vec<u8>> {
-        println!("############################ {:?}",self.root);
         let encoded = self.encode_node(self.root.clone());
         let root_hash = if encoded.len() < H::LENGTH {
             let hash = self.hasher.digest(&encoded);
+            println!("########################### commit {:?} root {:?},hash {:?}",encode,self.root,hash);
             self.cache.borrow_mut().insert(hash.clone(), encoded);
             hash
         } else {
+            println!("########################### commit2 {:?} root {:?} ",encode,self.root);
             encoded
         };
 
@@ -613,7 +614,7 @@ where
 
     fn decode_node(&self, data: &[u8]) -> TrieResult<Node> {
         let r = Rlp::new(data);
-
+        println!("############# decode_node {:?}",r.prototype());
         match r.prototype()? {
             Prototype::Data(0) => Ok(Node::Empty),
             Prototype::List(2) => {
@@ -663,7 +664,7 @@ where
         }*/
         match self.db.get(key).map_err(|e| TrieError::DB(e.to_string()))? {
             Some(value) => {
-                println!("############################ value {:?} hash {:?}",value,self.root_hash);
+                println!("############################ value {:?} hash {:?} key {:?}",value,self.root_hash,key);
                 Ok(self.decode_node(&value)?)
             },
             None => Ok(Node::Empty),

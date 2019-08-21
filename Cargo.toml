@@ -15,7 +15,13 @@ documentation = "https://docs.rs/cita_trie"
 parking_lot = "0.8"
 rlp = "0.3.0"
 hashbrown = "0.3.0"
-hasher = { version = "0.1", features = ["hash-keccak"] }
+hasher = "0.1"
+
+[features]
+default = ["hash-keccak"]
+hash-keccak = ["hasher/hash-keccak"]
+hash-blake2b = ["hasher/hash-blake2b"]
+hash-sm3 = ["hasher/hash-sm3"]
 
 [dev-dependencies]
 rand = "0.6.3"

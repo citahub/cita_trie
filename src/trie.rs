@@ -65,11 +65,153 @@ where
     gen_keys: RefCell<HashSet<Vec<u8>>>,
 }
 
+#[derive(Clone, Debug)]
+enum TraceStatus {
+    Start,
+    Doing,
+    Child(u8),
+    End,
+}
+
+#[derive(Clone, Debug)]
+struct TraceNode {
+    node: Node,
+    status: TraceStatus,
+}
+
+impl TraceNode {
+    fn advance(&mut self) {
+        self.status = match &self.status {
+            TraceStatus::Start => TraceStatus::Doing,
+            TraceStatus::Doing => match self.node {
+                Node::Branch(_) => TraceStatus::Child(0),
+                _ => TraceStatus::End,
+            },
+            TraceStatus::Child(i) if *i < 15 => TraceStatus::Child(i + 1),
+            _ => TraceStatus::End,
+        }
+    }
+}
+
+impl From<Node> for TraceNode {
+    fn from(node: Node) -> TraceNode {
+        TraceNode {
+            node,
+            status: TraceStatus::Start,
+        }
+    }
+}
+
+pub struct TrieIterator<'a, D, H>
+where
+    D: DB,
+    H: Hasher,
+{
+    trie: &'a PatriciaTrie<D, H>,
+    nibble: Nibbles,
+    nodes: Vec<TraceNode>,
+}
+
+impl<'a, D, H> Iterator for TrieIterator<'a, D, H>
+where
+    D: DB,
+    H: Hasher,
+{
+    type Item = (Vec<u8>, Vec<u8>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let mut now = self.nodes.last().cloned();
+            if let Some(ref mut now) = now {
+                self.nodes.last_mut().unwrap().advance();
+
+                match (now.status.clone(), &now.node) {
+                    (TraceStatus::End, node) => {
+                        match *node {
+                            Node::Leaf(ref leaf) => {
+                                let cur_len = self.nibble.len();
+                                self.nibble.truncate(cur_len - leaf.borrow().key.len());
+                            }
+
+                            Node::Extension(ref ext) => {
+                                let cur_len = self.nibble.len();
+                                self.nibble.truncate(cur_len - ext.borrow().prefix.len());
+                            }
+
+                            Node::Branch(_) => {
+                                self.nibble.pop();
+                            }
+                            _ => {}
+                        }
+                        self.nodes.pop();
+                    }
+
+                    (TraceStatus::Doing, Node::Extension(ref ext)) => {
+                        self.nibble.extend(&ext.borrow().prefix);
+                        self.nodes.push((ext.borrow().node.clone()).into());
+                    }
+
+                    (TraceStatus::Doing, Node::Leaf(ref leaf)) => {
+                        self.nibble.extend(&leaf.borrow().key);
+                        return Some((self.nibble.encode_raw().0, leaf.borrow().value.clone()));
+                    }
+
+                    (TraceStatus::Doing, Node::Branch(ref branch)) => {
+                        let value = branch.borrow().value.clone();
+                        if value.is_none() {
+                            continue;
+                        } else {
+                            return Some((self.nibble.encode_raw().0, value.unwrap()));
+                        }
+                    }
+
+                    (TraceStatus::Doing, Node::Hash(ref hash_node)) => {
+                        if let Ok(n) = self.trie.recover_from_db(&hash_node.borrow().hash.clone()) {
+                            self.nodes.pop();
+                            self.nodes.push(n.into());
+                        } else {
+                            //error!();
+                            return None;
+                        }
+                    }
+
+                    (TraceStatus::Child(i), Node::Branch(ref branch)) => {
+                        if i == 0 {
+                            self.nibble.push(0);
+                        } else {
+                            self.nibble.pop();
+                            self.nibble.push(i);
+                        }
+                        self.nodes
+                            .push((branch.borrow().children[i as usize].clone()).into());
+                    }
+
+                    (_, Node::Empty) => {
+                        self.nodes.pop();
+                    }
+                    _ => {}
+                }
+            } else {
+                return None;
+            }
+        }
+    }
+}
+
 impl<D, H> PatriciaTrie<D, H>
 where
     D: DB,
     H: Hasher,
 {
+    pub fn iter(&self) -> TrieIterator<D, H> {
+        let mut nodes = Vec::new();
+        nodes.push((self.root.clone()).into());
+        TrieIterator {
+            trie: self,
+            nibble: Nibbles::from_raw(vec![], false),
+            nodes,
+        }
+    }
     pub fn new(db: Arc<D>, hasher: Arc<H>) -> Self {
         Self {
             root: Node::Empty,
@@ -274,7 +416,7 @@ where
             Node::Branch(branch) => {
                 let mut borrow_branch = branch.borrow_mut();
 
-                if partial.at(0) == 16 {
+                if partial.at(0) == 0x10 {
                     borrow_branch.value = Some(value);
                     return Ok(Node::Branch(branch.clone()));
                 }
@@ -346,7 +488,7 @@ where
             Node::Branch(branch) => {
                 let mut borrow_branch = branch.borrow_mut();
 
-                if partial.at(0) == 16 {
+                if partial.at(0) == 0x10 {
                     borrow_branch.value = None;
                     return Ok((Node::Branch(branch.clone()), true));
                 }
@@ -668,6 +810,7 @@ mod tests {
     use rand::distributions::Alphanumeric;
     use rand::seq::SliceRandom;
     use rand::{thread_rng, Rng};
+    use std::collections::{HashMap, HashSet};
     use std::sync::Arc;
 
     use ethereum_types;
@@ -900,7 +1043,74 @@ mod tests {
         trie.insert(b"test33".to_vec(), b"test".to_vec()).unwrap();
         trie.insert(b"test44".to_vec(), b"test".to_vec()).unwrap();
         trie.root().unwrap();
+
         let v = trie.get(b"test").unwrap();
         assert_eq!(Some(b"test".to_vec()), v);
+    }
+
+    #[test]
+    fn iterator_trie() {
+        let memdb = Arc::new(MemoryDB::new(true));
+        let mut root1;
+        let mut kv = HashMap::new();
+        kv.insert(b"test".to_vec(), b"test".to_vec());
+        kv.insert(b"test1".to_vec(), b"test1".to_vec());
+        kv.insert(b"test11".to_vec(), b"test2".to_vec());
+        kv.insert(b"test14".to_vec(), b"test3".to_vec());
+        kv.insert(b"test16".to_vec(), b"test4".to_vec());
+        kv.insert(b"test18".to_vec(), b"test5".to_vec());
+        kv.insert(b"test2".to_vec(), b"test6".to_vec());
+        kv.insert(b"test23".to_vec(), b"test7".to_vec());
+        kv.insert(b"test9".to_vec(), b"test8".to_vec());
+        {
+            let mut trie = PatriciaTrie::new(memdb.clone(), Arc::new(HasherKeccak::new()));
+            let mut kv = kv.clone();
+            kv.iter().for_each(|(k, v)| {
+                trie.insert(k.clone(), v.clone()).unwrap();
+            });
+            root1 = trie.root().unwrap();
+
+            trie.iter()
+                .for_each(|(k, v)| assert_eq!(kv.remove(&k).unwrap(), v));
+            assert!(kv.is_empty());
+        }
+
+        {
+            let mut trie = PatriciaTrie::new(memdb.clone(), Arc::new(HasherKeccak::new()));
+            let mut kv2 = HashMap::new();
+            kv2.insert(b"test".to_vec(), b"test11".to_vec());
+            kv2.insert(b"test1".to_vec(), b"test12".to_vec());
+            kv2.insert(b"test14".to_vec(), b"test13".to_vec());
+            kv2.insert(b"test22".to_vec(), b"test14".to_vec());
+            kv2.insert(b"test9".to_vec(), b"test15".to_vec());
+            kv2.insert(b"test16".to_vec(), b"test16".to_vec());
+            kv2.insert(b"test2".to_vec(), b"test17".to_vec());
+            kv2.iter().for_each(|(k, v)| {
+                trie.insert(k.clone(), v.clone()).unwrap();
+            });
+
+            trie.root().unwrap();
+
+            let mut kv_delete = HashSet::new();
+            kv_delete.insert(b"test".to_vec());
+            kv_delete.insert(b"test1".to_vec());
+            kv_delete.insert(b"test14".to_vec());
+
+            kv_delete.iter().for_each(|k| {
+                trie.remove(&k).unwrap();
+            });
+
+            kv2.retain(|k, _| !kv_delete.contains(k));
+
+            trie.root().unwrap();
+            trie.iter()
+                .for_each(|(k, v)| assert_eq!(kv2.remove(&k).unwrap(), v));
+            assert!(kv2.is_empty());
+        }
+
+        let trie = PatriciaTrie::from(memdb, Arc::new(HasherKeccak::new()), &root1).unwrap();
+        trie.iter()
+            .for_each(|(k, v)| assert_eq!(kv.remove(&k).unwrap(), v));
+        assert!(kv.is_empty());
     }
 }

@@ -83,7 +83,6 @@ impl Nibbles {
         compact
     }
 
-    #[cfg(test)]
     pub fn encode_raw(&self) -> (Vec<u8>, bool) {
         let mut raw = vec![];
         let is_leaf = self.is_leaf();
@@ -141,6 +140,22 @@ impl Nibbles {
         hex_data.extend_from_slice(self.get_data());
         hex_data.extend_from_slice(b.get_data());
         Nibbles::from_hex(hex_data)
+    }
+
+    pub fn extend(&mut self, b: &Nibbles) {
+        self.hex_data.extend_from_slice(b.get_data());
+    }
+
+    pub fn truncate(&mut self, len: usize) {
+        self.hex_data.truncate(len)
+    }
+
+    pub fn pop(&mut self) -> Option<u8> {
+        self.hex_data.pop()
+    }
+
+    pub fn push(&mut self, e: u8) {
+        self.hex_data.push(e)
     }
 }
 

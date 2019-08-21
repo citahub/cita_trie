@@ -45,4 +45,4 @@ mod trie;
 
 pub use db::{MemoryDB, DB};
 pub use errors::{MemDBError, TrieError};
-pub use trie::{PatriciaTrie, Trie};
+pub use trie::{PatriciaTrie, Trie, TrieIterator};

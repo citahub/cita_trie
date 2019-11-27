@@ -10,7 +10,7 @@
 
 //! fn main() {
 //!     let memdb = Rc::new(RefCell::new(MemoryDB::new(true)));
-//!     let hasher = Rc::new(RefCell::new(HasherKeccak::new()));
+//!     let hasher = Rc::new(HasherKeccak::new());
 //!
 //!     let key = "test-key".as_bytes();
 //!     let value = "test-value".as_bytes();

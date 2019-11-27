@@ -59,7 +59,7 @@ fn random_data(n: usize) -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
 fn new_trie() -> PatriciaTrie<MemoryDB, HasherKeccak> {
     PatriciaTrie::new(
         Rc::new(RefCell::new(MemoryDB::new(false))),
-        Rc::new(RefCell::new(HasherKeccak::new())),
+        Rc::new(HasherKeccak::new()),
     )
 }
 

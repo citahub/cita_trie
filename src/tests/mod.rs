@@ -12,22 +12,15 @@ mod trie_tests {
 
     fn assert_root(data: Vec<(&[u8], &[u8])>, hash: &str) {
         let memdb = Rc::new(RefCell::new(MemoryDB::new(true)));
-        let mut trie = PatriciaTrie::new(
-            Rc::clone(&memdb),
-            Rc::new(RefCell::new(HasherKeccak::new())),
-        );
+        let mut trie = PatriciaTrie::new(Rc::clone(&memdb), Rc::new(HasherKeccak::new()));
         for (k, v) in data.into_iter() {
             trie.insert(k.to_vec(), v.to_vec()).unwrap();
         }
         let r = trie.root().unwrap();
         let rs = format!("0x{}", hex::encode(r.clone()));
         assert_eq!(rs.as_str(), hash);
-        let mut trie = PatriciaTrie::from(
-            Rc::clone(&memdb),
-            Rc::new(RefCell::new(HasherKeccak::new())),
-            &r,
-        )
-        .unwrap();
+        let mut trie =
+            PatriciaTrie::from(Rc::clone(&memdb), Rc::new(HasherKeccak::new()), &r).unwrap();
         let r2 = trie.root().unwrap();
         let rs2 = format!("0x{}", hex::encode(r2));
         assert_eq!(rs2.as_str(), hash);
@@ -560,10 +553,7 @@ mod trie_tests {
     #[test]
     fn test_proof_basic() {
         let memdb = Rc::new(RefCell::new(MemoryDB::new(true)));
-        let mut trie = PatriciaTrie::new(
-            Rc::clone(&memdb),
-            Rc::new(RefCell::new(HasherKeccak::new())),
-        );
+        let mut trie = PatriciaTrie::new(Rc::clone(&memdb), Rc::new(HasherKeccak::new()));
         trie.insert(b"doe".to_vec(), b"reindeer".to_vec()).unwrap();
         trie.insert(b"dog".to_vec(), b"puppy".to_vec()).unwrap();
         trie.insert(b"dogglesworth".to_vec(), b"cat".to_vec())
@@ -624,10 +614,7 @@ mod trie_tests {
     #[test]
     fn test_proof_random() {
         let memdb = Rc::new(RefCell::new(MemoryDB::new(true)));
-        let mut trie = PatriciaTrie::new(
-            Rc::clone(&memdb),
-            Rc::new(RefCell::new(HasherKeccak::new())),
-        );
+        let mut trie = PatriciaTrie::new(Rc::clone(&memdb), Rc::new(HasherKeccak::new()));
         let mut rng = rand::thread_rng();
         let mut keys = vec![];
         for _ in 0..100 {
@@ -652,10 +639,7 @@ mod trie_tests {
     #[test]
     fn test_proof_empty_trie() {
         let memdb = Rc::new(RefCell::new(MemoryDB::new(true)));
-        let mut trie = PatriciaTrie::new(
-            Rc::clone(&memdb),
-            Rc::new(RefCell::new(HasherKeccak::new())),
-        );
+        let mut trie = PatriciaTrie::new(Rc::clone(&memdb), Rc::new(HasherKeccak::new()));
         trie.root().unwrap();
         let proof = trie.get_proof(b"not-exist").unwrap();
         assert_eq!(proof.len(), 0);
@@ -664,10 +648,7 @@ mod trie_tests {
     #[test]
     fn test_proof_one_element() {
         let memdb = Rc::new(RefCell::new(MemoryDB::new(true)));
-        let mut trie = PatriciaTrie::new(
-            Rc::clone(&memdb),
-            Rc::new(RefCell::new(HasherKeccak::new())),
-        );
+        let mut trie = PatriciaTrie::new(Rc::clone(&memdb), Rc::new(HasherKeccak::new()));
         trie.insert(b"k".to_vec(), b"v".to_vec()).unwrap();
         let root = trie.root().unwrap();
         let proof = trie.get_proof(b"k").unwrap();

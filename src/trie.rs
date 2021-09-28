@@ -205,8 +205,7 @@ where
     H: Hasher,
 {
     pub fn iter(&self) -> TrieIterator<D, H> {
-        let mut nodes = Vec::new();
-        nodes.push((self.root.clone()).into());
+        let nodes = vec![(self.root.clone()).into()];
         TrieIterator {
             trie: self,
             nibble: Nibbles::from_raw(vec![], false),

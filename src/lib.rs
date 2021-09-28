@@ -5,8 +5,8 @@
 //!
 //! use hasher::{Hasher, HasherKeccak}; // https://crates.io/crates/hasher
 //!
-//! use cita_trie::MemoryDB;
-//! use cita_trie::{PatriciaTrie, Trie};
+//! use eth_trie::MemoryDB;
+//! use eth_trie::{PatriciaTrie, Trie};
 
 //! fn main() {
 //!     let memdb = Arc::new(MemoryDB::new(true));

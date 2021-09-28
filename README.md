@@ -1,12 +1,12 @@
-## CITA-Trie
+## eth-trie
 
-[![Latest Version](https://img.shields.io/crates/v/cita_trie.svg)](https://crates.io/crates/cita_trie)
-[![](https://travis-ci.org/cryptape/cita-trie.svg?branch=master)](https://travis-ci.org/cryptape/cita-trie)
-[![](https://img.shields.io/hexpm/l/plug.svg)](https://github.com/cryptape/cita-trie/blob/master/LICENSE)
+[![Latest Version](https://img.shields.io/crates/v/eth_trie.svg)](https://crates.io/crates/eth_trie)
+[![](https://img.shields.io/hexpm/l/plug.svg)](https://github.com/carver/eth-trie.rs/blob/master/LICENSE)
 
-Rust implementation of the Modified Patricia Tree (aka Trie),
+Rust implementation of the Merkle-Patricia Trie, used by Ethereum.
 
-The implementation is strongly inspired by [go-ethereum trie](https://github.com/ethereum/go-ethereum/tree/master/trie)
+The implementation is forked from [CITA-trie](https://github.com/citahub/cita-trie), which was
+strongly inspired by [go-ethereum trie](https://github.com/ethereum/go-ethereum/tree/master/trie).
 
 ## Features
 
@@ -21,8 +21,8 @@ use std::sync::Arc;
 
 use hasher::{Hasher, HasherKeccak}; // https://crates.io/crates/hasher
 
-use cita_trie::MemoryDB;
-use cita_trie::{PatriciaTrie, Trie};
+use eth_trie::MemoryDB;
+use eth_trie::{PatriciaTrie, Trie};
 
 fn main() {
     let memdb = Arc::new(MemoryDB::new(true));
@@ -102,4 +102,4 @@ See: https://crates.io/crates/hasher
 
 ### Custom storage
 
-[Refer](https://github.com/cryptape/cita-trie/blob/master/src/db.rs)
+[Refer](https://github.com/carver/eth-trie.rs/blob/master/src/db.rs)

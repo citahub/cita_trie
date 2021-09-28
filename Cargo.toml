@@ -1,15 +1,15 @@
 [package]
-name = "cita_trie"
-version = "2.0.0"
-authors = ["yejiayu <yejiayu.fe@gmail.com>"]
-description = "Modified Patricia Tree (aka Trie)."
+name = "eth_trie"
+version = "0.1.0"
+authors = ["Jason Carver <ut96caarrs@snkmail.com>"]
+description = "Ethereum-compatible Merkle-Patricia Trie."
 license = "Apache-2.0"
 edition = "2018"
 readme = "README.md"
 keywords = ["patricia", "mpt", "evm", "trie", "ethereum"]
-repository = "https://github.com/cryptape/cita-trie"
-homepage = "https://github.com/cryptape/cita-trie"
-documentation = "https://docs.rs/cita_trie"
+repository = "https://github.com/carver/eth-trie.rs"
+homepage = "https://github.com/carver/eth-trie.rs"
+documentation = "https://docs.rs/eth_trie"
 
 [dependencies]
 parking_lot = "0.8"

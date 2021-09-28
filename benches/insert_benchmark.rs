@@ -5,11 +5,11 @@ use criterion::{criterion_group, criterion_main, Criterion};
 use hasher::HasherKeccak;
 use uuid::Uuid;
 
-use cita_trie::MemoryDB;
-use cita_trie::{PatriciaTrie, Trie};
+use eth_trie::MemoryDB;
+use eth_trie::{PatriciaTrie, Trie};
 
 fn insert_worse_case_benchmark(c: &mut Criterion) {
-    c.bench_function("cita-trie insert one", |b| {
+    c.bench_function("eth-trie insert one", |b| {
         let mut trie = PatriciaTrie::new(
             Arc::new(MemoryDB::new(false)),
             Arc::new(HasherKeccak::new()),
@@ -22,7 +22,7 @@ fn insert_worse_case_benchmark(c: &mut Criterion) {
         })
     });
 
-    c.bench_function("cita-trie insert 1k", |b| {
+    c.bench_function("eth-trie insert 1k", |b| {
         let mut trie = PatriciaTrie::new(
             Arc::new(MemoryDB::new(false)),
             Arc::new(HasherKeccak::new()),
@@ -36,7 +36,7 @@ fn insert_worse_case_benchmark(c: &mut Criterion) {
         });
     });
 
-    c.bench_function("cita-trie insert 10k", |b| {
+    c.bench_function("eth-trie insert 10k", |b| {
         let mut trie = PatriciaTrie::new(
             Arc::new(MemoryDB::new(false)),
             Arc::new(HasherKeccak::new()),

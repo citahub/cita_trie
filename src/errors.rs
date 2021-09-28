@@ -10,6 +10,7 @@ pub enum TrieError {
     InvalidData,
     InvalidStateRoot,
     InvalidProof,
+    Invariant(String),
 }
 
 impl Error for TrieError {}

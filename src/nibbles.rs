@@ -10,6 +10,10 @@ impl Nibbles {
         Nibbles { hex_data: hex }
     }
 
+    pub fn empty() -> Self {
+        Nibbles { hex_data: vec![] }
+    }
+
     pub fn from_raw(raw: Vec<u8>, is_leaf: bool) -> Self {
         let mut hex_data = vec![];
         for item in raw.into_iter() {

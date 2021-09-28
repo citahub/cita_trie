@@ -256,7 +256,9 @@ where
 {
     /// Returns the value for key stored in the trie.
     fn get(&self, key: &[u8]) -> TrieResult<Option<Vec<u8>>> {
-        self.get_at(self.root.clone(), &Nibbles::from_raw(key.to_vec(), true))
+        let root = self.root.clone();
+        let nibbles = &Nibbles::from_raw(key.to_vec(), true);
+        self._get(root, nibbles)
     }
 
     /// Checks that the key is present in the trie
@@ -371,6 +373,90 @@ where
                 let borrow_hash_node = hash_node.borrow();
                 let n = self.recover_from_db(&borrow_hash_node.hash)?;
                 self.get_at(n, partial)
+            }
+        }
+    }
+
+    fn _get(&self, source_node: Node, full_key: &Nibbles) -> TrieResult<Option<Vec<u8>>> {
+        let (node, partial) = self._traverse_from(source_node, full_key);
+        // partial is the remaining (unconsumed) key, after navigating to the given node
+
+        match node {
+            Node::Empty => Ok(None),
+            Node::Leaf(leaf) => {
+                let borrow_leaf = leaf.borrow();
+
+                if &borrow_leaf.key == partial {
+                    Ok(Some(borrow_leaf.value.clone()))
+                } else {
+                    Ok(None)
+                }
+            }
+            Node::Branch(branch) => {
+                let borrow_branch = branch.borrow();
+
+                if partial.is_empty() || partial.at(0) == 16 {
+                    Ok(borrow_branch.value.clone())
+                } else {
+                    TrieError::Invariant("Traversal must not return a branch node with any path remaining")
+                }
+            }
+            Node::Extension(_) => {
+                if partial.is_empty() {
+                    Ok(None)
+                } else {
+                    TrieError::Invariant("Traversal must not return an extension node with any path remaining")
+                }
+            }
+            Node::Hash(hash_node) => {
+                TrieError::Invariant("Traversal must not return a hash node")
+            }
+            _ => {
+                TrieError::Invariant("Traversal must not return any other type of node")
+            }
+        }
+    }
+
+    fn _traverse_from(&self, n: Node, key: &Nibbles) -> TrieResult<(Node, Nibbles)> {
+        let remaining_key = key.offset(0);
+        while !remaining_key.is_empty() {
+            match n {
+                Node::Empty => (n, Nibbles::empty()),
+                Node::Leaf(leaf) => {
+                    let borrow_leaf = leaf.borrow();
+
+                    if &borrow_leaf.key == partial {
+                        Ok(Some(borrow_leaf.value.clone()))
+                    } else {
+                        Ok(None)
+                    }
+                }
+                Node::Branch(branch) => {
+                    let borrow_branch = branch.borrow();
+
+                    if partial.is_empty() || partial.at(0) == 16 {
+                        Ok(borrow_branch.value.clone())
+                    } else {
+                        let index = partial.at(0);
+                        self.get_at(borrow_branch.children[index].clone(), &partial.offset(1))
+                    }
+                }
+                Node::Extension(extension) => {
+                    let extension = extension.borrow();
+
+                    let prefix = &extension.prefix;
+                    let match_len = partial.common_prefix(prefix);
+                    if match_len == prefix.len() {
+                        self.get_at(extension.node.clone(), &partial.offset(match_len))
+                    } else {
+                        Ok(None)
+                    }
+                }
+                Node::Hash(hash_node) => {
+                    let borrow_hash_node = hash_node.borrow();
+                    let n = self.recover_from_db(&borrow_hash_node.hash)?;
+                    self.get_at(n, partial)
+                }
             }
         }
     }

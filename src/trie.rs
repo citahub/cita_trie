@@ -1051,7 +1051,7 @@ mod tests {
     #[test]
     fn iterator_trie() {
         let memdb = Arc::new(MemoryDB::new(true));
-        let mut root1;
+        let root1;
         let mut kv = HashMap::new();
         kv.insert(b"test".to_vec(), b"test".to_vec());
         kv.insert(b"test1".to_vec(), b"test1".to_vec());

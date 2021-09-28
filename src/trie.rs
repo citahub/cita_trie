@@ -228,7 +228,7 @@ where
     }
 
     pub fn from(db: Arc<D>, hasher: Arc<H>, root: &[u8]) -> TrieResult<Self> {
-        match db.get(&root).map_err(|e| TrieError::DB(e.to_string()))? {
+        match db.get(root).map_err(|e| TrieError::DB(e.to_string()))? {
             Some(data) => {
                 let mut trie = Self {
                     root: Node::Empty,
@@ -361,7 +361,7 @@ where
                 let extension = extension.borrow();
 
                 let prefix = &extension.prefix;
-                let match_len = partial.common_prefix(&prefix);
+                let match_len = partial.common_prefix(prefix);
                 if match_len == prefix.len() {
                     self.get_at(extension.node.clone(), &partial.offset(match_len))
                 } else {
@@ -432,7 +432,7 @@ where
 
                 let prefix = &borrow_ext.prefix;
                 let sub_node = borrow_ext.node.clone();
-                let match_index = partial.common_prefix(&prefix);
+                let match_index = partial.common_prefix(prefix);
 
                 if match_index == 0 {
                     let mut branch = BranchNode {

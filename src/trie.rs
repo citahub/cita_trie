@@ -258,6 +258,8 @@ where
     fn get(&self, key: &[u8]) -> TrieResult<Option<Vec<u8>>> {
         let root = self.root.clone();
         let nibbles = &Nibbles::from_raw(key.to_vec(), true);
+        // TODO convert traversal error (MissingTraversalNode in py-trie) to lookup error
+        //  (MissingTrieNode)
         self._get(root, nibbles)
     }
 
@@ -378,7 +380,7 @@ where
     }
 
     fn _get(&self, source_node: Node, full_key: &Nibbles) -> TrieResult<Option<Vec<u8>>> {
-        let (node, partial) = self._traverse_from(source_node, full_key);
+        let (node, partial) = self._traverse_from(source_node, full_key); // TODO add ? when this can raise errors
         // partial is the remaining (unconsumed) key, after navigating to the given node
 
         match node {
@@ -395,6 +397,7 @@ where
             Node::Branch(branch) => {
                 let borrow_branch = branch.borrow();
 
+                // TODO drop this weird bonus nibble of 16
                 if partial.is_empty() || partial.at(0) == 16 {
                     Ok(borrow_branch.value.clone())
                 } else {
@@ -418,6 +421,8 @@ where
     }
 
     fn _traverse_from(&self, n: Node, key: &Nibbles) -> TrieResult<(Node, Nibbles)> {
+        // TODO reduce memory churn by changing Nibbles to support borrowing a slice,
+        //  and/or tracking the offset id and indexing into the remaining key while looping.
         let remaining_key = key.offset(0);
         while !remaining_key.is_empty() {
             match n {

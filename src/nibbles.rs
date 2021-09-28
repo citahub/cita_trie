@@ -2,6 +2,7 @@ use std::cmp::min;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Nibbles {
+    // TODO When the special 16-value is dropped, then this should be reduced to u4
     hex_data: Vec<u8>,
 }
 
@@ -14,6 +15,8 @@ impl Nibbles {
         Nibbles { hex_data: vec![] }
     }
 
+    // TODO accept u8 slice?
+    // TODO drop is_leaf?
     pub fn from_raw(raw: Vec<u8>, is_leaf: bool) -> Self {
         let mut hex_data = vec![];
         for item in raw.into_iter() {

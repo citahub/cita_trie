@@ -154,7 +154,7 @@ mod tests {
         let compact = n.encode_compact();
         let n2 = Nibbles::from_compact(compact);
         let (raw, is_leaf) = n2.encode_raw();
-        assert_eq!(is_leaf, true);
+        assert!(is_leaf);
         assert_eq!(raw, b"key1");
     }
 }

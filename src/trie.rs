@@ -1,8 +1,8 @@
 use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
 
-use hashbrown::{HashMap, HashSet};
 use hasher::Hasher;
 use rlp::{Prototype, Rlp, RlpStream};
 
@@ -85,7 +85,7 @@ where
     }
 
     pub fn from(db: Arc<D>, hasher: Arc<H>, root: &[u8]) -> TrieResult<Self> {
-        match db.get(&root).map_err(|e| TrieError::DB(e.to_string()))? {
+        match db.get(root).map_err(|e| TrieError::DB(e.to_string()))? {
             Some(data) => {
                 let mut trie = Self {
                     root: Node::Empty,
@@ -218,7 +218,7 @@ where
                 let extension = extension.borrow();
 
                 let prefix = &extension.prefix;
-                let match_len = partial.common_prefix(&prefix);
+                let match_len = partial.common_prefix(prefix);
                 if match_len == prefix.len() {
                     self.get_at(extension.node.clone(), &partial.offset(match_len))
                 } else {
@@ -289,7 +289,7 @@ where
 
                 let prefix = &borrow_ext.prefix;
                 let sub_node = borrow_ext.node.clone();
-                let match_index = partial.common_prefix(&prefix);
+                let match_index = partial.common_prefix(prefix);
 
                 if match_index == 0 {
                     let mut branch = BranchNode {
@@ -570,7 +570,7 @@ where
                 let mut stream = RlpStream::new_list(2);
                 stream.append(&borrow_leaf.key.encode_compact());
                 stream.append(&borrow_leaf.value);
-                stream.out()
+                stream.out().to_vec()
             }
             Node::Branch(branch) => {
                 let borrow_branch = branch.borrow();
@@ -590,7 +590,7 @@ where
                     Some(v) => stream.append(v),
                     None => stream.append_empty_data(),
                 };
-                stream.out()
+                stream.out().to_vec()
             }
             Node::Extension(ext) => {
                 let borrow_ext = ext.borrow();
@@ -603,7 +603,7 @@ where
                 } else {
                     stream.append_raw(&data, 1);
                 }
-                stream.out()
+                stream.out().to_vec()
             }
             Node::Hash(_hash) => unreachable!(),
         }
@@ -670,7 +670,6 @@ mod tests {
     use rand::{thread_rng, Rng};
     use std::sync::Arc;
 
-    use ethereum_types;
     use hasher::{Hasher, HasherKeccak};
 
     use super::{PatriciaTrie, Trie};
@@ -713,8 +712,8 @@ mod tests {
         let memdb = Arc::new(MemoryDB::new(true));
         let mut trie = PatriciaTrie::new(memdb, Arc::new(HasherKeccak::new()));
         trie.insert(b"test".to_vec(), b"test".to_vec()).unwrap();
-        assert_eq!(true, trie.contains(b"test").unwrap());
-        assert_eq!(false, trie.contains(b"test2").unwrap());
+        assert!(trie.contains(b"test").unwrap());
+        assert!(!trie.contains(b"test2").unwrap());
     }
 
     #[test]
@@ -723,7 +722,7 @@ mod tests {
         let mut trie = PatriciaTrie::new(memdb, Arc::new(HasherKeccak::new()));
         trie.insert(b"test".to_vec(), b"test".to_vec()).unwrap();
         let removed = trie.remove(b"test").unwrap();
-        assert_eq!(true, removed)
+        assert!(removed)
     }
 
     #[test]
@@ -737,7 +736,7 @@ mod tests {
             trie.insert(val.to_vec(), val.to_vec()).unwrap();
 
             let removed = trie.remove(val).unwrap();
-            assert_eq!(true, removed);
+            assert!(removed);
         }
     }
 
@@ -804,11 +803,11 @@ mod tests {
         let mut trie =
             PatriciaTrie::from(Arc::clone(&memdb), Arc::new(HasherKeccak::new()), &root).unwrap();
         let removed = trie.remove(b"test44").unwrap();
-        assert_eq!(true, removed);
+        assert!(removed);
         let removed = trie.remove(b"test33").unwrap();
-        assert_eq!(true, removed);
+        assert!(removed);
         let removed = trie.remove(b"test23").unwrap();
-        assert_eq!(true, removed);
+        assert!(removed);
     }
 
     #[test]

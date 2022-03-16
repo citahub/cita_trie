@@ -59,6 +59,7 @@ where
 
     db: Arc<D>,
     hasher: Arc<H>,
+    backup_db: Option<Arc<D>>,
 
     cache: RefCell<HashMap<Vec<u8>, Vec<u8>>>,
     passing_keys: RefCell<HashSet<Vec<u8>>>,
@@ -223,6 +224,7 @@ where
 
             db,
             hasher,
+            backup_db: None,
         }
     }
 
@@ -239,6 +241,7 @@ where
 
                     db,
                     hasher,
+                    backup_db: None,
                 };
 
                 trie.root = trie.decode_node(&data)?;
@@ -246,6 +249,57 @@ where
             }
             None => Err(TrieError::InvalidStateRoot),
         }
+    }
+
+    // extract specified height statedb in full node mode
+    pub fn extract_backup(
+        db: Arc<D>,
+        backup_db: Option<Arc<D>>,
+        hasher: Arc<H>,
+        root_hash: &[u8],
+    ) -> TrieResult<(Self, Vec<Vec<u8>>)> {
+        let mut pt = Self {
+            root: Node::Empty,
+            root_hash: hasher.digest(&rlp::NULL_RLP.to_vec()),
+
+            cache: RefCell::new(HashMap::new()),
+            passing_keys: RefCell::new(HashSet::new()),
+            gen_keys: RefCell::new(HashSet::new()),
+
+            db,
+            hasher,
+            backup_db,
+        };
+
+        let root = pt.recover_from_db(root_hash)?;
+        pt.root = root.clone();
+        pt.root_hash = root_hash.to_vec();
+
+        let mut addr_list = vec![];
+        pt.iter().for_each(|(k, _v)| addr_list.push(k));
+        let encoded = pt.cache_node(root)?;
+        let hash = pt.hasher.digest(&encoded);
+        pt.cache.borrow_mut().insert(hash.clone(), encoded);
+
+        let mut keys = Vec::with_capacity(pt.cache.borrow().len());
+        let mut values = Vec::with_capacity(pt.cache.borrow().len());
+        for (k, v) in pt.cache.borrow_mut().drain() {
+            keys.push(k.to_vec());
+            values.push(v);
+        }
+
+        // store data in backup db
+        pt.backup_db
+            .clone()
+            .unwrap()
+            .insert_batch(keys, values)
+            .map_err(|e| TrieError::DB(e.to_string()))?;
+        pt.backup_db
+            .clone()
+            .unwrap()
+            .flush()
+            .map_err(|e| TrieError::DB(e.to_string()))?;
+        Ok((pt, addr_list))
     }
 }
 
@@ -801,6 +855,60 @@ where
         match self.db.get(key).map_err(|e| TrieError::DB(e.to_string()))? {
             Some(value) => Ok(self.decode_node(&value)?),
             None => Ok(Node::Empty),
+        }
+    }
+
+    fn cache_node(&self, n: Node) -> TrieResult<Vec<u8>> {
+        match n {
+            Node::Empty => Ok(rlp::NULL_RLP.to_vec()),
+            Node::Leaf(leaf) => {
+                let borrow_leaf = leaf.borrow();
+
+                let mut stream = RlpStream::new_list(2);
+                stream.append(&borrow_leaf.key.encode_compact());
+                stream.append(&borrow_leaf.value);
+                Ok(stream.out())
+            }
+            Node::Branch(branch) => {
+                let borrow_branch = branch.borrow();
+
+                let mut stream = RlpStream::new_list(17);
+                for i in 0..16 {
+                    let n = borrow_branch.children[i].clone();
+                    let data = self.cache_node(n)?;
+                    if data.len() == H::LENGTH {
+                        stream.append(&data);
+                    } else {
+                        stream.append_raw(&data, 1);
+                    }
+                }
+
+                match &borrow_branch.value {
+                    Some(v) => stream.append(v),
+                    None => stream.append_empty_data(),
+                };
+                Ok(stream.out())
+            }
+            Node::Extension(ext) => {
+                let borrow_ext = ext.borrow();
+
+                let mut stream = RlpStream::new_list(2);
+                stream.append(&borrow_ext.prefix.encode_compact());
+                let data = self.cache_node(borrow_ext.node.clone())?;
+                if data.len() == H::LENGTH {
+                    stream.append(&data);
+                } else {
+                    stream.append_raw(&data, 1);
+                }
+                Ok(stream.out())
+            }
+            Node::Hash(hash_node) => {
+                let hash = hash_node.borrow().hash.clone();
+                let next_node = self.recover_from_db(&hash)?;
+                let data = self.cache_node(next_node)?;
+                self.cache.borrow_mut().insert(hash.clone(), data);
+                Ok(hash)
+            }
         }
     }
 }

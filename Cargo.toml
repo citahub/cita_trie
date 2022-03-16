@@ -1,6 +1,6 @@
 [package]
 name = "cita_trie"
-version = "2.0.0"
+version = "3.0.0"
 authors = ["yejiayu <yejiayu.fe@gmail.com>"]
 description = "Modified Patricia Tree (aka Trie)."
 license = "Apache-2.0"
@@ -12,14 +12,13 @@ homepage = "https://github.com/cryptape/cita-trie"
 documentation = "https://docs.rs/cita_trie"
 
 [dependencies]
-parking_lot = "0.8"
-rlp = "0.3.0"
-hashbrown = "0.3.0"
+parking_lot = "0.11"
+rlp = "0.5"
 hasher = { version = "0.1", features = ["hash-keccak"] }
 
 [dev-dependencies]
 rand = "0.6.3"
-hex = "0.3.2"
+hex = "0.4"
 criterion = "0.2.10"
 ethereum-types = "0.5.2"
 uuid = { version = "0.7", features = ["serde", "v4"] }

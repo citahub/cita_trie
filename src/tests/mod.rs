@@ -602,12 +602,12 @@ mod trie_tests {
         // empty proof
         let proof = vec![];
         let value = trie.verify_proof(root.clone(), b"doe", proof);
-        assert_eq!(value.is_err(), true);
+        assert!(value.is_err());
 
         // bad proof
         let proof = vec![b"aaa".to_vec(), b"ccc".to_vec()];
-        let value = trie.verify_proof(root.clone(), b"doe", proof);
-        assert_eq!(value.is_err(), true);
+        let value = trie.verify_proof(root, b"doe", proof);
+        assert!(value.is_err());
     }
 
     #[test]
@@ -660,9 +660,7 @@ mod trie_tests {
         // remove key does not affect the verify process
         trie.remove(b"k").unwrap();
         let _root = trie.root().unwrap();
-        let value = trie
-            .verify_proof(root.clone(), b"k", proof.clone())
-            .unwrap();
+        let value = trie.verify_proof(root, b"k", proof).unwrap();
         assert_eq!(value, Some(b"v".to_vec()));
     }
 }

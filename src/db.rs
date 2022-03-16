@@ -127,7 +127,7 @@ mod tests {
         memdb.insert(b"test".to_vec(), b"test".to_vec()).unwrap();
 
         let contains = memdb.contains(b"test").unwrap();
-        assert_eq!(contains, true)
+        assert!(contains)
     }
 
     #[test]
@@ -137,6 +137,6 @@ mod tests {
 
         memdb.remove(b"test").unwrap();
         let contains = memdb.contains(b"test").unwrap();
-        assert_eq!(contains, false)
+        assert!(!contains)
     }
 }

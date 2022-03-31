@@ -159,10 +159,10 @@ where
 
                     (TraceStatus::Doing, Node::Branch(ref branch)) => {
                         let value = branch.borrow().value.clone();
-                        if value.is_none() {
-                            continue;
+                        if let Some(data) = value {
+                            return Some((self.nibble.encode_raw().0, data));
                         } else {
-                            return Some((self.nibble.encode_raw().0, value.unwrap()));
+                            continue;
                         }
                     }
 
@@ -205,8 +205,7 @@ where
     H: Hasher,
 {
     pub fn iter(&self) -> TrieIterator<D, H> {
-        let mut nodes = Vec::new();
-        nodes.push((self.root.clone()).into());
+        let nodes = vec![self.root.clone().into()];
         TrieIterator {
             trie: self,
             nibble: Nibbles::from_raw(vec![], false),
@@ -278,8 +277,9 @@ where
         let mut addr_list = vec![];
         pt.iter().for_each(|(k, _v)| addr_list.push(k));
         let encoded = pt.cache_node(root)?;
-        let hash = pt.hasher.digest(&encoded);
-        pt.cache.borrow_mut().insert(hash.clone(), encoded);
+        pt.cache
+            .borrow_mut()
+            .insert(pt.hasher.digest(&encoded), encoded);
 
         let mut keys = Vec::with_capacity(pt.cache.borrow().len());
         let mut values = Vec::with_capacity(pt.cache.borrow().len());
@@ -867,7 +867,7 @@ where
                 let mut stream = RlpStream::new_list(2);
                 stream.append(&borrow_leaf.key.encode_compact());
                 stream.append(&borrow_leaf.value);
-                Ok(stream.out())
+                Ok(stream.out().to_vec())
             }
             Node::Branch(branch) => {
                 let borrow_branch = branch.borrow();
@@ -887,7 +887,7 @@ where
                     Some(v) => stream.append(v),
                     None => stream.append_empty_data(),
                 };
-                Ok(stream.out())
+                Ok(stream.out().to_vec())
             }
             Node::Extension(ext) => {
                 let borrow_ext = ext.borrow();
@@ -900,7 +900,7 @@ where
                 } else {
                     stream.append_raw(&data, 1);
                 }
-                Ok(stream.out())
+                Ok(stream.out().to_vec())
             }
             Node::Hash(hash_node) => {
                 let hash = hash_node.borrow().hash.clone();

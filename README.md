@@ -24,7 +24,7 @@ use hasher::{Hasher, HasherKeccak}; // https://crates.io/crates/hasher
 use cita_trie::MemoryDB;
 use cita_trie::{PatriciaTrie, Trie};
 
-fn main() {    
+fn main() {
     let memdb = Arc::new(MemoryDB::new(true));
     let hasher = Arc::new(HasherKeccak::new());
 
@@ -44,12 +44,11 @@ fn main() {
 
     let exists = trie.contains(key).unwrap();
     assert_eq!(exists, true);
-
     let removed = trie.remove(key).unwrap();
     assert_eq!(removed, true);
-
     let new_root = trie.root().unwrap();
     println!("new root = {:?}", new_root);
+
 }
 
 ```

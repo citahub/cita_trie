@@ -26,7 +26,7 @@ use cita_trie::{PatriciaTrie, Trie};
 
 fn main() {
     let memdb = Arc::new(MemoryDB::new(true));
-    let hahser = Arc::new(HasherKeccak::new());
+    let hasher = Arc::new(HasherKeccak::new());
 
     let key = "test-key".as_bytes();
     let value = "test-value".as_bytes();

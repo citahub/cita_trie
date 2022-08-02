@@ -215,7 +215,7 @@ where
     pub fn new(db: Arc<D>, hasher: Arc<H>) -> Self {
         Self {
             root: Node::Empty,
-            root_hash: hasher.digest(&rlp::NULL_RLP.to_vec()),
+            root_hash: hasher.digest(rlp::NULL_RLP.as_ref()),
 
             cache: RefCell::new(HashMap::new()),
             passing_keys: RefCell::new(HashSet::new()),
@@ -259,7 +259,7 @@ where
     ) -> TrieResult<(Self, Vec<Vec<u8>>)> {
         let mut pt = Self {
             root: Node::Empty,
-            root_hash: hasher.digest(&rlp::NULL_RLP.to_vec()),
+            root_hash: hasher.digest(rlp::NULL_RLP.as_ref()),
 
             cache: RefCell::new(HashMap::new()),
             passing_keys: RefCell::new(HashSet::new()),
@@ -722,7 +722,7 @@ where
             .passing_keys
             .borrow()
             .iter()
-            .filter(|h| !self.gen_keys.borrow().contains(&h.to_vec()))
+            .filter(|h| !self.gen_keys.borrow().contains(*h))
             .map(|h| h.to_vec())
             .collect();
 
@@ -1063,9 +1063,9 @@ mod tests {
 
     #[test]
     fn test_multiple_trie_roots() {
-        let k0: ethereum_types::H256 = 0.into();
-        let k1: ethereum_types::H256 = 1.into();
-        let v: ethereum_types::H256 = 0x1234.into();
+        let k0 = ethereum_types::H256::from_low_u64_le(0);
+        let k1 = ethereum_types::H256::from_low_u64_le(1);
+        let v = ethereum_types::H256::from_low_u64_le(0x1234);
 
         let root1 = {
             let memdb = Arc::new(MemoryDB::new(true));
@@ -1101,7 +1101,7 @@ mod tests {
             let mut trie2 =
                 PatriciaTrie::from(Arc::clone(&memdb), Arc::new(HasherKeccak::new()), &root)
                     .unwrap();
-            trie2.remove(&k1.as_bytes().to_vec()).unwrap();
+            trie2.remove(k1.as_bytes()).unwrap();
             trie2.root().unwrap()
         };
 
@@ -1158,7 +1158,7 @@ mod tests {
     #[test]
     fn iterator_trie() {
         let memdb = Arc::new(MemoryDB::new(true));
-        let mut root1;
+        let root1;
         let mut kv = HashMap::new();
         kv.insert(b"test".to_vec(), b"test".to_vec());
         kv.insert(b"test1".to_vec(), b"test1".to_vec());
@@ -1204,7 +1204,7 @@ mod tests {
             kv_delete.insert(b"test14".to_vec());
 
             kv_delete.iter().for_each(|k| {
-                trie.remove(&k).unwrap();
+                trie.remove(k).unwrap();
             });
 
             kv2.retain(|k, _| !kv_delete.contains(k));

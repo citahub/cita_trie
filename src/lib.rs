@@ -46,4 +46,29 @@ mod trie;
 
 pub use db::{MemoryDB, DB};
 pub use errors::{MemDBError, TrieError};
+pub use hasher::Hasher;
 pub use trie::{PatriciaTrie, Trie};
+
+use std::sync::Arc;
+use trie::TrieResult;
+
+pub fn verify_proof<H: Hasher>(
+    root_hash: &[u8],
+    key: &[u8],
+    proof: Vec<Vec<u8>>,
+    hasher: H,
+) -> TrieResult<Option<Vec<u8>>> {
+    let memdb = Arc::new(MemoryDB::new(true));
+    for node_encoded in proof.into_iter() {
+        let hash = hasher.digest(&node_encoded);
+
+        if root_hash.eq(&hash) || node_encoded.len() >= H::LENGTH {
+            memdb.insert(hash, node_encoded).unwrap();
+        }
+    }
+
+    PatriciaTrie::from(memdb, Arc::new(hasher), root_hash)
+        .or(Err(TrieError::InvalidProof))?
+        .get(key)
+        .or(Err(TrieError::InvalidProof))
+}

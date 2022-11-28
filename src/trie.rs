@@ -377,7 +377,7 @@ where
                 memdb.insert(hash, node_encoded).unwrap();
             }
         }
-        let trie = PatriciaTrie::from(memdb, Arc::clone(&self.hasher), &root_hash)
+        let trie = PatriciaTrie::from(memdb, Arc::clone(&self.hasher), root_hash)
             .or(Err(TrieError::InvalidProof))?;
         trie.get(key).or(Err(TrieError::InvalidProof))
     }
@@ -805,6 +805,7 @@ where
         }
     }
 
+    #[allow(clippy::only_used_in_recursion)]
     fn decode_node(&self, data: &[u8]) -> TrieResult<Node> {
         let r = Rlp::new(data);
 

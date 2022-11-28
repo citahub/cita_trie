@@ -42,7 +42,7 @@ pub trait Trie<D: DB, H: Hasher> {
     /// return value if key exists, None if key not exist, Error if proof is wrong
     fn verify_proof(
         &self,
-        root_hash: Vec<u8>,
+        root_hash: &[u8],
         key: &[u8],
         proof: Vec<Vec<u8>>,
     ) -> TrieResult<Option<Vec<u8>>>;
@@ -365,7 +365,7 @@ where
     /// return value if key exists, None if key not exist, Error if proof is wrong
     fn verify_proof(
         &self,
-        root_hash: Vec<u8>,
+        root_hash: &[u8],
         key: &[u8],
         proof: Vec<Vec<u8>>,
     ) -> TrieResult<Option<Vec<u8>>> {
@@ -377,7 +377,7 @@ where
                 memdb.insert(hash, node_encoded).unwrap();
             }
         }
-        let trie = PatriciaTrie::from(memdb, Arc::clone(&self.hasher), &root_hash)
+        let trie = PatriciaTrie::from(memdb, Arc::clone(&self.hasher), root_hash)
             .or(Err(TrieError::InvalidProof))?;
         trie.get(key).or(Err(TrieError::InvalidProof))
     }
@@ -805,6 +805,7 @@ where
         }
     }
 
+    #[allow(clippy::only_used_in_recursion)]
     fn decode_node(&self, data: &[u8]) -> TrieResult<Node> {
         let r = Rlp::new(data);
 

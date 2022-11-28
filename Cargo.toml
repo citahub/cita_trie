@@ -1,6 +1,6 @@
 [package]
 name = "cita_trie"
-version = "3.0.2"
+version = "4.0.0"
 authors = ["yejiayu <yejiayu.fe@gmail.com>"]
 description = "Modified Patricia Tree (aka Trie)."
 license = "Apache-2.0"
@@ -20,7 +20,7 @@ hasher = { version = "0.1", features = ["hash-keccak"] }
 rand = "0.7"
 hex = "0.4"
 criterion = "0.3"
-ethereum-types = "0.13"
+ethereum-types = "0.14"
 uuid = { version = "1.1", features = ["serde", "v4"] }
 
 [[bench]]

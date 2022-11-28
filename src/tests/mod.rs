@@ -8,6 +8,7 @@ mod trie_tests {
 
     use crate::db::MemoryDB;
     use crate::trie::{PatriciaTrie, Trie};
+    use crate::verify_proof;
 
     fn assert_root(data: Vec<(&[u8], &[u8])>, hash: &str) {
         let memdb = Arc::new(MemoryDB::new(true));
@@ -578,8 +579,12 @@ mod trie_tests {
                 .collect::<Vec<_>>(),
             expected
         );
-        let value = trie.verify_proof(root.clone(), b"doe", proof).unwrap();
+        let value = trie.verify_proof(&root, b"doe", proof.clone()).unwrap();
         assert_eq!(value, Some(b"reindeer".to_vec()));
+        assert_eq!(
+            verify_proof(&root, b"doe", proof, HasherKeccak::new()).unwrap(),
+            Some(b"reindeer".to_vec())
+        );
 
         // proof of key not exist
         let proof = trie.get_proof(b"dogg").unwrap();
@@ -596,18 +601,24 @@ mod trie_tests {
                 .collect::<Vec<_>>(),
             expected
         );
-        let value = trie.verify_proof(root.clone(), b"dogg", proof).unwrap();
+        let value = trie.verify_proof(&root, b"dogg", proof.clone()).unwrap();
         assert_eq!(value, None);
+        assert_eq!(
+            verify_proof(&root, b"dogg", proof, HasherKeccak::new()).unwrap(),
+            None
+        );
 
         // empty proof
         let proof = vec![];
-        let value = trie.verify_proof(root.clone(), b"doe", proof);
+        let value = trie.verify_proof(&root, b"doe", proof.clone());
+        assert!(verify_proof(&root, b"doe", proof, HasherKeccak::new()).is_err());
         assert!(value.is_err());
 
         // bad proof
         let proof = vec![b"aaa".to_vec(), b"ccc".to_vec()];
-        let value = trie.verify_proof(root, b"doe", proof);
+        let value = trie.verify_proof(&root, b"doe", proof.clone());
         assert!(value.is_err());
+        assert!(verify_proof(&root, b"doe", proof, HasherKeccak::new()).is_err());
     }
 
     #[test]
@@ -630,8 +641,17 @@ mod trie_tests {
         let root = trie.root().unwrap();
         for k in keys.into_iter() {
             let proof = trie.get_proof(&k).unwrap();
-            let value = trie.verify_proof(root.clone(), &k, proof).unwrap().unwrap();
+            let value = trie
+                .verify_proof(&root, &k, proof.clone())
+                .unwrap()
+                .unwrap();
             assert_eq!(value, k);
+            assert_eq!(
+                verify_proof(&root, &k, proof, HasherKeccak::new())
+                    .unwrap()
+                    .unwrap(),
+                k
+            );
         }
     }
 
@@ -652,15 +672,17 @@ mod trie_tests {
         let root = trie.root().unwrap();
         let proof = trie.get_proof(b"k").unwrap();
         assert_eq!(proof.len(), 1);
-        let value = trie
-            .verify_proof(root.clone(), b"k", proof.clone())
-            .unwrap();
+        let value = trie.verify_proof(&root, b"k", proof.clone()).unwrap();
         assert_eq!(value, Some(b"v".to_vec()));
 
         // remove key does not affect the verify process
         trie.remove(b"k").unwrap();
         let _root = trie.root().unwrap();
-        let value = trie.verify_proof(root, b"k", proof).unwrap();
+        let value = trie.verify_proof(&root, b"k", proof.clone()).unwrap();
         assert_eq!(value, Some(b"v".to_vec()));
+        assert_eq!(
+            verify_proof(&root, b"k", proof, HasherKeccak::new()).unwrap(),
+            Some(b"v".to_vec())
+        );
     }
 }

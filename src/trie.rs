@@ -42,7 +42,7 @@ pub trait Trie<D: DB, H: Hasher> {
     /// return value if key exists, None if key not exist, Error if proof is wrong
     fn verify_proof(
         &self,
-        root_hash: Vec<u8>,
+        root_hash: &[u8],
         key: &[u8],
         proof: Vec<Vec<u8>>,
     ) -> TrieResult<Option<Vec<u8>>>;
@@ -365,7 +365,7 @@ where
     /// return value if key exists, None if key not exist, Error if proof is wrong
     fn verify_proof(
         &self,
-        root_hash: Vec<u8>,
+        root_hash: &[u8],
         key: &[u8],
         proof: Vec<Vec<u8>>,
     ) -> TrieResult<Option<Vec<u8>>> {

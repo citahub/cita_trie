@@ -62,6 +62,16 @@ impl MemoryDB {
             storage: Arc::new(RwLock::new(HashMap::new())),
         }
     }
+
+    /// Creates a of the instance.
+    pub fn deep_clone(&self) -> Self {
+        let storage = self.storage.read();
+
+        Self {
+            light: self.light,
+            storage: Arc::new(RwLock::new(storage.clone())),
+        }
+    }
 }
 
 impl DB for MemoryDB {
@@ -108,6 +118,27 @@ impl CDB for MemoryDB {}
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_memdb_deep_clone() {
+        const KEY: &[u8] = b"test-key";
+        const VALUE: &[u8] = b"test-value";
+
+        let memdb1 = MemoryDB::new(true);
+        memdb1.insert(KEY.to_vec(), VALUE.to_vec()).unwrap();
+
+        let memdb2 = memdb1.deep_clone();
+
+        let v1 = memdb1.get(KEY).unwrap().unwrap();
+        let v2 = memdb2.get(KEY).unwrap().unwrap();
+
+        assert_eq!(v1, v2);
+
+        memdb2.remove(KEY).unwrap();
+
+        assert_eq!(memdb1.get(KEY).unwrap().unwrap(), VALUE);
+        assert!(memdb2.get(KEY).unwrap().is_none());
+    }
 
     #[test]
     fn test_memdb_get() {

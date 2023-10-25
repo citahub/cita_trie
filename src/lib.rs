@@ -44,7 +44,7 @@ mod db;
 mod errors;
 mod trie;
 
-pub use db::{MemoryDB, DB};
+pub use db::{MemoryDB, CDB, DB};
 pub use errors::{MemDBError, TrieError};
 pub use hasher::Hasher;
 pub use trie::{PatriciaTrie, Trie};

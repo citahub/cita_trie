@@ -1,10 +1,10 @@
 [package]
 name = "cita_trie"
-version = "5.0.0"
+version = "5.0.1"
 authors = ["yejiayu <yejiayu.fe@gmail.com>"]
 description = "Modified Patricia Tree (aka Trie)."
 license = "Apache-2.0"
-edition = "2018"
+edition = "2021"
 readme = "README.md"
 keywords = ["patricia", "mpt", "evm", "trie", "ethereum"]
 repository = "https://github.com/cryptape/cita-trie"
@@ -19,7 +19,7 @@ hasher = { version = "0.1", features = ["hash-keccak"] }
 [dev-dependencies]
 rand = "0.7"
 hex = "0.4"
-criterion = "0.3"
+criterion = "0.5"
 ethereum-types = "0.14"
 uuid = { version = "1.1", features = ["serde", "v4"] }
 

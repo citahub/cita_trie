@@ -45,6 +45,9 @@ pub trait DB {
     fn is_empty(&self) -> Result<bool, Error>;
 }
 
+// cross DB is raw DB
+pub trait CDB: DB + Sync + Send {}
+
 #[derive(Default, Clone, Debug)]
 pub struct MemoryDB {
     // If "light" is true, the data is deleted from the database at the time of submission.
@@ -99,6 +102,8 @@ impl DB for MemoryDB {
         Ok(self.storage.try_read().unwrap().is_empty())
     }
 }
+
+impl CDB for MemoryDB {}
 
 #[cfg(test)]
 mod tests {

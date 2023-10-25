@@ -49,7 +49,7 @@ pub trait DB: Send + Sync {
     fn is_empty(&self) -> Result<bool, Self::Error>;
 }
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct MemoryDB {
     // If "light" is true, the data is deleted from the database at the time of submission.
     light: bool,

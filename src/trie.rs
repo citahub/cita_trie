@@ -204,7 +204,7 @@ where
     D: DB,
     H: Hasher,
 {
-    pub fn iter(&self) -> TrieIterator<D, H> {
+    pub fn iter(&self) -> TrieIterator<'_, D, H> {
         let nodes = vec![self.root.clone().into()];
         TrieIterator {
             trie: self,
@@ -916,9 +916,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use rand::distributions::Alphanumeric;
+    use rand::distr::Alphanumeric;
     use rand::seq::SliceRandom;
-    use rand::{thread_rng, Rng};
+    use rand::RngExt;
     use std::collections::{HashMap, HashSet};
     use std::sync::Arc;
 
@@ -950,7 +950,8 @@ mod tests {
         let mut trie = PatriciaTrie::new(memdb, Arc::new(HasherKeccak::new()));
 
         for _ in 0..1000 {
-            let rand_str: String = thread_rng().sample_iter(&Alphanumeric).take(30).collect();
+            let mut rng = rand::rng();
+            let rand_str: String = (0..30).map(|_| rng.sample(Alphanumeric) as char).collect();
             let val = rand_str.as_bytes();
             trie.insert(val.to_vec(), val.to_vec()).unwrap();
 
@@ -983,7 +984,8 @@ mod tests {
         let mut trie = PatriciaTrie::new(memdb, Arc::new(HasherKeccak::new()));
 
         for _ in 0..1000 {
-            let rand_str: String = thread_rng().sample_iter(&Alphanumeric).take(30).collect();
+            let mut rng = rand::rng();
+            let rand_str: String = (0..30).map(|_| rng.sample(Alphanumeric) as char).collect();
             let val = rand_str.as_bytes();
             trie.insert(val.to_vec(), val.to_vec()).unwrap();
 
@@ -1115,10 +1117,10 @@ mod tests {
         let memdb = Arc::new(MemoryDB::new(true));
         let mut trie = PatriciaTrie::new(memdb, Arc::new(HasherKeccak::new()));
 
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let mut keys = vec![];
         for _ in 0..100 {
-            let random_bytes: Vec<u8> = (0..rng.gen_range(2, 30))
+            let random_bytes: Vec<u8> = (0..rng.random_range(2..30))
                 .map(|_| rand::random::<u8>())
                 .collect();
             trie.insert(random_bytes.clone(), random_bytes.clone())

@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod trie_tests {
     use hex::FromHex;
-    use rand::Rng;
+    use rand::RngExt;
     use std::sync::Arc;
 
     use hasher::HasherKeccak;
@@ -625,10 +625,10 @@ mod trie_tests {
     fn test_proof_random() {
         let memdb = Arc::new(MemoryDB::new(true));
         let mut trie = PatriciaTrie::new(Arc::clone(&memdb), Arc::new(HasherKeccak::new()));
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let mut keys = vec![];
         for _ in 0..100 {
-            let random_bytes: Vec<u8> = (0..rng.gen_range(2, 30))
+            let random_bytes: Vec<u8> = (0..rng.random_range(2..30))
                 .map(|_| rand::random::<u8>())
                 .collect();
             trie.insert(random_bytes.to_vec(), random_bytes.clone())

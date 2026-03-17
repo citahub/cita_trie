@@ -1,25 +1,27 @@
-use std::collections::HashMap;
-use std::io::Error;
-use std::sync::Arc;
-
 use parking_lot::RwLock;
+use std::collections::HashMap;
+use std::error::Error;
+use std::sync::Arc;
+use crate::errors::MemDBError;
 
 /// "DB" defines the "trait" of trie and database interaction.
 /// You should first write the data to the cache and write the data
 /// to the database in bulk after the end of a set of operations.
-pub trait DB {
-    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, Error>;
+pub trait DB: Send + Sync {
+    type Error: Error;
 
-    fn contains(&self, key: &[u8]) -> Result<bool, Error>;
+    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, Self::Error>;
+
+    fn contains(&self, key: &[u8]) -> Result<bool, Self::Error>;
 
     /// Insert data into the cache.
-    fn insert(&self, key: Vec<u8>, value: Vec<u8>) -> Result<(), Error>;
+    fn insert(&self, key: Vec<u8>, value: Vec<u8>) -> Result<(), Self::Error>;
 
     /// Insert data into the cache.
-    fn remove(&self, key: &[u8]) -> Result<(), Error>;
+    fn remove(&self, key: &[u8]) -> Result<(), Self::Error>;
 
     /// Insert a batch of data into the cache.
-    fn insert_batch(&self, keys: Vec<Vec<u8>>, values: Vec<Vec<u8>>) -> Result<(), Error> {
+    fn insert_batch(&self, keys: Vec<Vec<u8>>, values: Vec<Vec<u8>>) -> Result<(), Self::Error> {
         for i in 0..keys.len() {
             let key = keys[i].clone();
             let value = values[i].clone();
@@ -29,7 +31,7 @@ pub trait DB {
     }
 
     /// Remove a batch of data into the cache.
-    fn remove_batch(&self, keys: &[Vec<u8>]) -> Result<(), Error> {
+    fn remove_batch(&self, keys: &[Vec<u8>]) -> Result<(), Self::Error> {
         for key in keys {
             self.remove(key)?;
         }
@@ -37,12 +39,12 @@ pub trait DB {
     }
 
     /// Flush data to the DB from the cache.
-    fn flush(&self) -> Result<(), Error>;
+    fn flush(&self) -> Result<(), Self::Error>;
 
     #[cfg(test)]
-    fn len(&self) -> Result<usize, Error>;
+    fn len(&self) -> Result<usize, Self::Error>;
     #[cfg(test)]
-    fn is_empty(&self) -> Result<bool, Error>;
+    fn is_empty(&self) -> Result<bool, Self::Error>;
 }
 
 // cross DB is raw DB
@@ -65,7 +67,9 @@ impl MemoryDB {
 }
 
 impl DB for MemoryDB {
-    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
+    type Error = MemDBError;
+
+    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, Self::Error> {
         if let Some(value) = self.storage.read().get(key) {
             Ok(Some(value.clone()))
         } else {
@@ -73,32 +77,32 @@ impl DB for MemoryDB {
         }
     }
 
-    fn insert(&self, key: Vec<u8>, value: Vec<u8>) -> Result<(), Error> {
+    fn insert(&self, key: Vec<u8>, value: Vec<u8>) -> Result<(), Self::Error> {
         self.storage.write().insert(key, value);
         Ok(())
     }
 
-    fn contains(&self, key: &[u8]) -> Result<bool, Error> {
+    fn contains(&self, key: &[u8]) -> Result<bool, Self::Error> {
         Ok(self.storage.read().contains_key(key))
     }
 
-    fn remove(&self, key: &[u8]) -> Result<(), Error> {
+    fn remove(&self, key: &[u8]) -> Result<(), Self::Error> {
         if self.light {
             self.storage.write().remove(key);
         }
         Ok(())
     }
 
-    fn flush(&self) -> Result<(), Error> {
+    fn flush(&self) -> Result<(), Self::Error> {
         Ok(())
     }
 
     #[cfg(test)]
-    fn len(&self) -> Result<usize, Error> {
+    fn len(&self) -> Result<usize, Self::Error> {
         Ok(self.storage.try_read().unwrap().len())
     }
     #[cfg(test)]
-    fn is_empty(&self) -> Result<bool, Error> {
+    fn is_empty(&self) -> Result<bool, Self::Error> {
         Ok(self.storage.try_read().unwrap().is_empty())
     }
 }

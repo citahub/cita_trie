@@ -1,6 +1,6 @@
 [package]
 name = "cita_trie"
-version = "6.0.0"
+version = "6.0.1"
 authors = ["yejiayu <yejiayu.fe@gmail.com>"]
 description = "Modified Patricia Tree (aka Trie)."
 license = "Apache-2.0"
@@ -14,7 +14,9 @@ documentation = "https://docs.rs/cita_trie"
 [dependencies]
 parking_lot = "0.12"
 rlp = { version = "0.6", features = ["derive"] }
-hasher = { version = "0.1", features = ["hash-keccak"] }
+hasher = { git = "https://github.com/citahub/hasher.git", branch = "master", features = [
+    "hash-keccak",
+] }
 
 [dev-dependencies]
 rand = "0.10"

@@ -14,9 +14,7 @@ documentation = "https://docs.rs/cita_trie"
 [dependencies]
 parking_lot = "0.12"
 rlp = { version = "0.6", features = ["derive"] }
-hasher = { git = "https://github.com/citahub/hasher.git", branch = "master", features = [
-    "hash-keccak",
-] }
+cita-hasher = { version = "0.1", features = ["hash-keccak"] }
 
 [dev-dependencies]
 rand = "0.10"

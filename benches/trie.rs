@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use criterion::{criterion_group, criterion_main, Criterion};
 
-use hasher::HasherKeccak;
+use cita_hasher::HasherKeccak;
 use uuid::Uuid;
 
 use cita_trie::MemoryDB;

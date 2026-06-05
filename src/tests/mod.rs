@@ -4,7 +4,7 @@ mod trie_tests {
     use rand::RngExt;
     use std::sync::Arc;
 
-    use hasher::HasherKeccak;
+    use cita_hasher::HasherKeccak;
 
     use crate::db::MemoryDB;
     use crate::trie::{PatriciaTrie, Trie};

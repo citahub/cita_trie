@@ -46,14 +46,14 @@ mod trie;
 
 pub use db::{MemoryDB, CDB, DB};
 pub use errors::{MemDBError, TrieError};
-pub use hasher::Hasher;
+pub use cita_hasher::Hasher;
 pub use trie::{PatriciaTrie, Trie};
 pub use verify::verify_proof;
 
 mod verify {
     use std::sync::Arc;
 
-    use hasher::Hasher;
+    use cita_hasher::Hasher;
 
     use crate::{trie::TrieResult, MemoryDB, PatriciaTrie, Trie, TrieError, DB};
 

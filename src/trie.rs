@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
 
-use hasher::Hasher;
+use cita_hasher::Hasher;
 use rlp::{Prototype, Rlp, RlpStream};
 
 use crate::db::{MemoryDB, DB};
@@ -922,7 +922,7 @@ mod tests {
     use std::collections::{HashMap, HashSet};
     use std::sync::Arc;
 
-    use hasher::{Hasher, HasherKeccak};
+    use cita_hasher::{Hasher, HasherKeccak};
 
     use super::{PatriciaTrie, Trie};
     use crate::db::{MemoryDB, DB};

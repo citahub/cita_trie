@@ -281,24 +281,29 @@ where
             .borrow_mut()
             .insert(pt.hasher.digest(&encoded), encoded);
 
-        let mut keys = Vec::with_capacity(pt.cache.borrow().len());
-        let mut values = Vec::with_capacity(pt.cache.borrow().len());
+        let mut keys = vec![];
+        let mut values = vec![];
+        let mut count_len = 0;
         for (k, v) in pt.cache.borrow_mut().drain() {
             keys.push(k.to_vec());
             values.push(v);
+            count_len += 1;
+            if count_len % 10000 == 0 {
+                // store data in backup db
+                pt.backup_db
+                    .clone()
+                    .unwrap()
+                    .insert_batch(keys.clone(), values.clone())
+                    .map_err(|e| TrieError::DB(e.to_string()))?;
+                keys.clear();
+                values.clear();
+                pt.backup_db
+                    .clone()
+                    .unwrap()
+                    .flush()
+                    .map_err(|e| TrieError::DB(e.to_string()))?;
+            }
         }
-
-        // store data in backup db
-        pt.backup_db
-            .clone()
-            .unwrap()
-            .insert_batch(keys, values)
-            .map_err(|e| TrieError::DB(e.to_string()))?;
-        pt.backup_db
-            .clone()
-            .unwrap()
-            .flush()
-            .map_err(|e| TrieError::DB(e.to_string()))?;
         Ok((pt, addr_list))
     }
 }
@@ -317,7 +322,7 @@ where
     fn contains(&self, key: &[u8]) -> TrieResult<bool> {
         Ok(self
             .get_at(self.root.clone(), &Nibbles::from_raw(key.to_vec(), true))?
-            .map_or(false, |_| true))
+            .is_some())
     }
 
     /// Inserts value into trie and modifies it if it exists
